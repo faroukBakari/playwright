@@ -29,6 +29,7 @@
     "./lib/mcp/exports": "./lib/mcp/exports.js",
     "./lib/tools/exports": "./lib/tools/exports.js",
     "./lib/mcp/index": "./lib/mcp/index.js",
+    "./lib/mcp/program": "./lib/mcp/program.js",
     "./lib/remote/playwrightServer": "./lib/remote/playwrightServer.js",
     "./lib/server": "./lib/server/index.js",
     "./lib/server/utils/image_tools/stats": "./lib/server/utils/image_tools/stats.js",
