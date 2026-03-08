@@ -116,12 +116,19 @@ export class CDPRelayServer {
 
   private _connectBrowser(clientInfo: ClientInfo, forceNewTab: boolean) {
     const mcpRelayEndpoint = `${this._wsHost}${this._extensionPath}`;
-    // Need to specify "key" in the manifest.json to make the id stable when loading from file.
-    const url = new URL('chrome-extension://mmlmfjhmonkocbjadbfplnigmagldckm/connect.html');
+    // ia-custom: Extension ID is configurable via env var for test compatibility.
+    // Default: our unpacked extension ID (stable per deploy dir %LOCALAPPDATA%\playwright-mcp-bridge\).
+    // Upstream published ID: mmlmfjhmonkocbjadbfplnigmagldckm
+    // Tests inject the published key into the manifest, producing the published ID —
+    // set PLAYWRIGHT_MCP_EXTENSION_ID to match.
+    const extensionId = process.env.PLAYWRIGHT_MCP_EXTENSION_ID || 'fjaaeokdflnbifiadcgneihbpkmmlikp';
+    const url = new URL(`chrome-extension://${extensionId}/connect.html`);
     url.searchParams.set('mcpRelayUrl', mcpRelayEndpoint);
     const client = {
       name: 'Playwright Agent',
-      version: require('../../../package.json').version,
+      // ia-custom: ../../ resolves to playwright-core/ in monorepo layout
+      // (upstream uses ../../../ which resolves to package root in published npm)
+      version: require('../../package.json').version,
     };
     url.searchParams.set('client', JSON.stringify(client));
     url.searchParams.set('protocolVersion', process.env.PWMCP_TEST_PROTOCOL_VERSION ?? protocol.VERSION.toString());
