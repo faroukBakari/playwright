@@ -28,8 +28,51 @@ import * as mcpServer from './server';
 import type { ServerBackendFactory } from './server';
 import type { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import type { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import type { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
 
 const testDebug = debug('pw:mcp:test');
+
+// EventStore implementation for StreamableHTTPServerTransport resumability.
+// When provided, the transport assigns event IDs to SSE messages and supports
+// client reconnection via Last-Event-ID header (MCP protocol >= 2025-11-25).
+// Bounded to MAX_EVENTS to prevent unbounded memory growth.
+const MAX_EVENTS = 500;
+
+class InMemoryEventStore {
+  private _events = new Map<string, { streamId: string; message: JSONRPCMessage }>();
+  private _counter = 0;
+
+  async storeEvent(streamId: string, message: JSONRPCMessage): Promise<string> {
+    const eventId = `${streamId}_${++this._counter}`;
+    if (this._events.size >= MAX_EVENTS) {
+      const oldest = this._events.keys().next().value!;
+      this._events.delete(oldest);
+    }
+    this._events.set(eventId, { streamId, message });
+    return eventId;
+  }
+
+  async replayEventsAfter(
+    lastEventId: string,
+    { send }: { send: (eventId: string, message: JSONRPCMessage) => Promise<void> },
+  ): Promise<string> {
+    const entry = this._events.get(lastEventId);
+    if (!entry)
+      return '';
+    const targetStreamId = entry.streamId;
+    let found = false;
+    for (const [eventId, ev] of this._events) {
+      if (!found) {
+        if (eventId === lastEventId)
+          found = true;
+        continue;
+      }
+      if (ev.streamId === targetStreamId)
+        await send(eventId, ev.message);
+    }
+    return targetStreamId;
+  }
+}
 
 export async function startMcpHttpServer(
   config: { host?: string, port?: number },
@@ -154,6 +197,7 @@ async function handleStreamable(serverBackendFactory: ServerBackendFactory, req:
   if (req.method === 'POST') {
     const transport = new mcpBundle.StreamableHTTPServerTransport({
       sessionIdGenerator: () => crypto.randomUUID(),
+      eventStore: new InMemoryEventStore(),
       onsessioninitialized: async sessionId => {
         testDebug(`create http session`);
         await mcpServer.connect(serverBackendFactory, transport, true);
