@@ -42,6 +42,10 @@ import type { WebSocket, WebSocketServer } from '../utilsBundle';
 
 const debugLogger = debug('pw:mcp:relay');
 
+type RelayState = 'connected' | 'grace' | 'disconnected';
+const GRACE_TTL_MS = 30_000;
+const GRACE_BUFFER_MAX_BYTES = 2 * 1024 * 1024; // 2 MB
+
 type CDPCommand = {
   id: number;
   sessionId?: string;
@@ -65,6 +69,7 @@ export class CDPRelayServer {
   private _executablePath?: string;
   private _cdpPath: string;
   private _extensionPath: string;
+  private _httpServer: http.Server;
   private _wss: WebSocketServer;
   private _playwrightConnection: WebSocket | null = null;
   private _extensionConnection: ExtensionConnection | null = null;
@@ -76,11 +81,24 @@ export class CDPRelayServer {
   private _nextSessionId: number = 1;
   private _extensionConnectionPromise!: ManualPromise<void>;
 
+  // Grace period state (Part A)
+  private _state: RelayState = 'disconnected';
+  private _graceTimer: ReturnType<typeof setTimeout> | null = null;
+  private _graceBuffer: { data: string; size: number }[] = [];
+  private _graceBufferBytes = 0;
+
+  // Sideband HTTP pending requests (Part B)
+  private _registryCallbacks = new Map<string, {
+    resolve: (value: any) => void;
+    timer: ReturnType<typeof setTimeout>;
+  }>();
+
   constructor(server: http.Server, browserChannel: string, userDataDir?: string, executablePath?: string) {
     this._wsHost = addressToString(server.address(), { protocol: 'ws' });
     this._browserChannel = browserChannel;
     this._userDataDir = userDataDir;
     this._executablePath = executablePath;
+    this._httpServer = server;
 
     const uuid = crypto.randomUUID();
     this._cdpPath = `/cdp/${uuid}`;
@@ -89,6 +107,7 @@ export class CDPRelayServer {
     this._resetExtensionConnection();
     this._wss = new wsServer({ server });
     this._wss.on('connection', this._onConnection.bind(this));
+    this._installSidebandHTTP();
   }
 
   cdpEndpoint() {
@@ -164,6 +183,7 @@ export class CDPRelayServer {
   }
 
   stop(): void {
+    this._cancelGrace();
     this.closeConnections('Server stopped');
     this._wss.close();
   }
@@ -187,12 +207,29 @@ export class CDPRelayServer {
   }
 
   private _handlePlaywrightConnection(ws: WebSocket): void {
+    // During grace period: accept reconnection, rewire to existing extension WS
+    if (this._state === 'grace') {
+      debugLogger('Playwright reconnected during grace period');
+      this._playwrightConnection = ws;
+      this._cancelGrace();
+      this._flushGraceBuffer();
+      this._state = 'connected';
+      this._installPlaywrightHandlers(ws);
+      return;
+    }
+
     if (this._playwrightConnection) {
       debugLogger('Rejecting second Playwright connection');
       ws.close(1000, 'Another CDP client already connected');
       return;
     }
     this._playwrightConnection = ws;
+    this._state = 'connected';
+    this._installPlaywrightHandlers(ws);
+    debugLogger('Playwright MCP connected');
+  }
+
+  private _installPlaywrightHandlers(ws: WebSocket): void {
     ws.on('message', async data => {
       try {
         const message = JSON.parse(data.toString());
@@ -205,18 +242,67 @@ export class CDPRelayServer {
       if (this._playwrightConnection !== ws)
         return;
       this._playwrightConnection = null;
-      this._closeExtensionConnection('Playwright client disconnected');
+      // Grace period: hold extension connection if it's still alive
+      if (this._extensionConnection) {
+        this._enterGrace();
+      } else {
+        this._state = 'disconnected';
+      }
       debugLogger('Playwright WebSocket closed');
     });
     ws.on('error', error => {
       debugLogger('Playwright WebSocket error:', error);
     });
-    debugLogger('Playwright MCP connected');
+  }
+
+  private _enterGrace(): void {
+    debugLogger(`Entering grace period (${GRACE_TTL_MS}ms)`);
+    this._state = 'grace';
+    this._graceBuffer = [];
+    this._graceBufferBytes = 0;
+    this._graceTimer = setTimeout(() => {
+      debugLogger('Grace period expired');
+      this._graceTimer = null;
+      this._state = 'disconnected';
+      // Notify extension that server is gone
+      this._extensionConnection?.sendRaw({ type: 'registry:serverDown' });
+      this._closeExtensionConnection('Grace period expired');
+    }, GRACE_TTL_MS);
+  }
+
+  private _cancelGrace(): void {
+    if (this._graceTimer) {
+      clearTimeout(this._graceTimer);
+      this._graceTimer = null;
+    }
+  }
+
+  private _flushGraceBuffer(): void {
+    debugLogger(`Flushing ${this._graceBuffer.length} buffered events`);
+    for (const event of this._graceBuffer)
+      this._playwrightConnection?.send(event.data);
+    this._graceBuffer = [];
+    this._graceBufferBytes = 0;
+  }
+
+  private _bufferEvent(data: string): void {
+    const size = data.length * 2; // rough byte estimate (UTF-16)
+    while (this._graceBufferBytes + size > GRACE_BUFFER_MAX_BYTES && this._graceBuffer.length > 0) {
+      const evicted = this._graceBuffer.shift()!;
+      this._graceBufferBytes -= evicted.size;
+    }
+    this._graceBuffer.push({ data, size });
+    this._graceBufferBytes += size;
   }
 
   private _closeExtensionConnection(reason: string) {
     this._extensionConnection?.close(reason);
     this._extensionConnectionPromise.reject(new Error(reason));
+    // Fail any pending sideband HTTP requests
+    for (const [id, cb] of this._registryCallbacks) {
+      clearTimeout(cb.timer);
+      this._registryCallbacks.delete(id);
+    }
     this._resetExtensionConnection();
   }
 
@@ -243,10 +329,16 @@ export class CDPRelayServer {
       debugLogger('Extension WebSocket closed:', reason, c === this._extensionConnection);
       if (this._extensionConnection !== c)
         return;
+      // Extension drop = immediate cleanup, no grace (CDP endpoint is gone)
+      this._cancelGrace();
+      this._graceBuffer = [];
+      this._graceBufferBytes = 0;
+      this._state = 'disconnected';
       this._resetExtensionConnection();
       this._closePlaywrightConnection(`Extension disconnected: ${reason}`);
     };
     this._extensionConnection.onmessage = this._handleExtensionMessage.bind(this);
+    this._extensionConnection.onregistryresponse = this._handleRegistryResponse.bind(this);
     this._extensionConnectionPromise.resolve();
   }
 
@@ -254,11 +346,16 @@ export class CDPRelayServer {
     switch (method) {
       case 'forwardCDPEvent':
         const sessionId = params.sessionId || this._connectedTabInfo?.sessionId;
-        this._sendToPlaywright({
+        const message: CDPResponse = {
           sessionId,
           method: params.method,
           params: params.params
-        });
+        };
+        if (this._state === 'grace') {
+          this._bufferEvent(JSON.stringify(message));
+        } else {
+          this._sendToPlaywright(message);
+        }
         break;
     }
   }
@@ -335,6 +432,79 @@ export class CDPRelayServer {
     debugLogger('→ Playwright:', `${message.method ?? `response(id=${message.id})`}`);
     this._playwrightConnection?.send(JSON.stringify(message));
   }
+
+  // --- Sideband HTTP (Part B) ---
+
+  private _installSidebandHTTP(): void {
+    this._httpServer.on('request', (req, res) => {
+      const url = new URL(`http://localhost${req.url}`);
+      if (url.pathname === '/registry' && req.method === 'GET')
+        this._handleRegistryList(res);
+      else if (url.pathname === '/registry/focus' && req.method === 'POST')
+        this._handleRegistryFocus(req, res);
+      // Other paths fall through to WSS upgrade or are ignored
+    });
+  }
+
+  private _handleRegistryList(res: http.ServerResponse): void {
+    this._sendRegistryQuery({ type: 'registry:list' }, res);
+  }
+
+  private _handleRegistryFocus(req: http.IncomingMessage, res: http.ServerResponse): void {
+    let body = '';
+    req.on('data', (chunk: Buffer) => body += chunk.toString());
+    req.on('end', () => {
+      try {
+        const { tabId } = JSON.parse(body);
+        if (typeof tabId !== 'number') {
+          res.statusCode = 400;
+          res.end(JSON.stringify({ error: 'tabId must be a number' }));
+          return;
+        }
+        this._sendRegistryQuery({ type: 'registry:focus', tabId }, res);
+      } catch {
+        res.statusCode = 400;
+        res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+      }
+    });
+  }
+
+  private _sendRegistryQuery(message: any, res: http.ServerResponse): void {
+    if (!this._extensionConnection) {
+      res.statusCode = 503;
+      res.end(JSON.stringify({ error: 'Extension not connected' }));
+      return;
+    }
+    const id = crypto.randomUUID();
+    const timer = setTimeout(() => {
+      this._registryCallbacks.delete(id);
+      res.statusCode = 503;
+      res.end(JSON.stringify({ error: 'Extension response timeout' }));
+    }, 5000);
+    this._registryCallbacks.set(id, {
+      resolve: (data: any) => {
+        clearTimeout(timer);
+        this._registryCallbacks.delete(id);
+        res.setHeader('Content-Type', 'application/json');
+        res.statusCode = 200;
+        res.end(JSON.stringify(data));
+      },
+      timer,
+    });
+    // Tag with _callbackId so we can route the response back
+    this._extensionConnection.sendRaw({ ...message, _callbackId: id });
+  }
+
+  /** Called by ExtensionConnection when a registry:* response arrives */
+  _handleRegistryResponse(parsed: any): void {
+    const id = parsed._callbackId;
+    if (!id) return;
+    const cb = this._registryCallbacks.get(id);
+    if (!cb) return;
+    // Strip internal routing field before returning
+    delete parsed._callbackId;
+    cb.resolve(parsed);
+  }
 }
 
 type ExtensionResponse = {
@@ -352,6 +522,7 @@ class ExtensionConnection {
 
   onmessage?: <M extends keyof ExtensionEvents>(method: M, params: ExtensionEvents[M]['params']) => void;
   onclose?: (self: ExtensionConnection, reason: string) => void;
+  onregistryresponse?: (parsed: any) => void;
 
   constructor(ws: WebSocket) {
     this._ws = ws;
@@ -369,6 +540,11 @@ class ExtensionConnection {
     return new Promise((resolve, reject) => {
       this._callbacks.set(id, { resolve, reject, error });
     });
+  }
+
+  sendRaw(message: any): void {
+    if (this._ws.readyState === ws.OPEN)
+      this._ws.send(JSON.stringify(message));
   }
 
   close(message: string) {
@@ -395,7 +571,12 @@ class ExtensionConnection {
     }
   }
 
-  private _handleParsedMessage(object: ExtensionResponse) {
+  private _handleParsedMessage(object: any) {
+    // Route registry responses (type-based) to the relay's HTTP handler
+    if (typeof object.type === 'string' && object.type.startsWith('registry:')) {
+      this.onregistryresponse?.(object);
+      return;
+    }
     if (object.id && this._callbacks.has(object.id)) {
       const callback = this._callbacks.get(object.id)!;
       this._callbacks.delete(object.id);
