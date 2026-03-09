@@ -62,7 +62,20 @@ async function installHttpTransport(httpServer: http.Server, serverBackendFactor
 
   const sseSessions = new Map();
   const streamableSessions = new Map();
+
+  // Idle TTL: auto-exit after inactivity. Default 30min. Set to 0 to disable.
+  let lastActivity = Date.now();
+  const idleTimeoutMs = parseInt(process.env.PLAYWRIGHT_MCP_IDLE_TTL || '1800', 10) * 1000;
+  if (idleTimeoutMs > 0) {
+    setInterval(() => {
+      if (Date.now() - lastActivity > idleTimeoutMs)
+        process.exit(0);
+    }, 60_000).unref();
+  }
+
   httpServer.on('request', async (req, res) => {
+    lastActivity = Date.now();
+
     if (!allowAnyHost) {
       const host = req.headers.host?.toLowerCase();
       if (!host) {

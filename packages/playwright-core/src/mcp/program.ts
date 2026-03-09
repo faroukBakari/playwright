@@ -122,8 +122,16 @@ export function decorateMCPCommand(command: Command, version: string) {
           },
           disposed: async backend => {
             clientCount--;
-            if (sharedBrowser && clientCount > 0)
+            if (sharedBrowser) {
+              // Shared browser lifecycle is owned by the server process, not by
+              // individual clients. Only close isolated contexts; never close
+              // the shared browser itself — it persists until server shutdown.
+              if (config.browser.isolated) {
+                const browserContext = (backend as BrowserServerBackend).browserContext;
+                await browserContext.close().catch(() => { });
+              }
               return;
+            }
 
             testDebug('close browser');
             const browserContext = (backend as BrowserServerBackend).browserContext;
