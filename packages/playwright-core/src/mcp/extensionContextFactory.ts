@@ -24,6 +24,14 @@ import type { FullConfig } from './config';
 
 const debugLogger = debug('pw:mcp:relay');
 
+/**
+ * HTTP base URL of the CDP relay server. Set after relay creation.
+ * Used by tools (browser_select_tab) and context recovery to query
+ * the extension's tab registry via sideband HTTP.
+ * Undefined in non-extension modes (headless, persistent, CDP).
+ */
+export let relayHttpUrl: string | undefined;
+
 export async function createExtensionBrowser(config: FullConfig, clientInfo: ClientInfo): Promise<playwright.Browser> {
   const httpServer = createHttpServer();
   await startHttpServer(httpServer, {});
@@ -33,6 +41,11 @@ export async function createExtensionBrowser(config: FullConfig, clientInfo: Cli
       config.browser.userDataDir,
       config.browser.launchOptions.executablePath);
   debugLogger(`CDP relay server started, extension endpoint: ${relay.extensionEndpoint()}.`);
+
+  // Derive HTTP base URL from the relay's WS endpoint (ws://host:port/cdp/uuid → http://host:port)
+  const cdpUrl = new URL(relay.cdpEndpoint().replace(/^ws/, 'http'));
+  relayHttpUrl = `${cdpUrl.protocol}//${cdpUrl.host}`;
+  debugLogger(`Relay HTTP URL for sideband: ${relayHttpUrl}`);
 
   await relay.ensureExtensionConnectionForMCPContext(clientInfo, /* forceNewTab */ false);
   return await playwright.chromium.connectOverCDP(relay.cdpEndpoint(), { isLocal: true });

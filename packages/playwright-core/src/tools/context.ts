@@ -24,6 +24,7 @@ import { escapeWithQuotes } from '../utils/isomorphic/stringUtils';
 import { selectors } from '../..';
 
 import { Tab } from './tab';
+import { relayHttpUrl } from '../mcp/extensionContextFactory';
 
 import type * as playwright from '../..';
 import type { SessionLog } from './sessionLog';
@@ -312,7 +313,41 @@ export class Context {
       this._onPageCreated(page);
     this._disposables.push(eventsHelper.addEventListener(browserContext as BrowserContext, 'page', page => this._onPageCreated(page)));
 
+    // Tab recovery: query the extension's tab registry to set _currentTab
+    // to a page the user was previously interacting with. Purely additive —
+    // falls back silently in non-extension modes or when registry is unavailable.
+    await this._recoverTabFromRegistry().catch(() => {});
+
     return browserContext;
+  }
+
+  /**
+   * Query the extension's tab registry via sideband HTTP and match registry
+   * entries to existing Playwright Pages. Sets _currentTab to the most recently
+   * active tab with a debugger attached. No-op in non-extension modes.
+   */
+  private async _recoverTabFromRegistry(): Promise<void> {
+    if (!relayHttpUrl || this._tabs.length === 0)
+      return;
+    const response = await fetch(`${relayHttpUrl}/registry`, {
+      signal: AbortSignal.timeout(3000),
+    });
+    if (!response.ok)
+      return;
+    const data = await response.json();
+    const registryTabs: { url: string; debugger: { attached: boolean }; lastSeen: number }[] = data.tabs ?? [];
+    // Find registry entries with attached debugger, sorted by most recent
+    const attached = registryTabs
+      .filter(t => t.debugger.attached)
+      .sort((a, b) => b.lastSeen - a.lastSeen);
+    for (const entry of attached) {
+      const match = this._tabs.find(t => t.page.url() === entry.url);
+      if (match) {
+        this._currentTab = match;
+        testDebug(`recovered current tab from registry: ${entry.url}`);
+        return;
+      }
+    }
   }
 
   lookupSecret(secretName: string): { value: string, code: string } {

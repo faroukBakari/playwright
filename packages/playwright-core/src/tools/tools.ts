@@ -30,6 +30,7 @@ import network from './network';
 import pdf from './pdf';
 import route from './route';
 import runCode from './runCode';
+import selectTab from './selectTab';
 import snapshot from './snapshot';
 import screenshot from './screenshot';
 import storage from './storage';
@@ -61,6 +62,7 @@ export const browserTools: Tool<any>[] = [
   ...route,
   ...runCode,
   ...screenshot,
+  ...selectTab,
   ...snapshot,
   ...storage,
   ...tabs,
