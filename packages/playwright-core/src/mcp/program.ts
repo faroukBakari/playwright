@@ -91,14 +91,17 @@ export function decorateMCPCommand(command: Command, version: string) {
         const config = await resolveCLIConfig(options);
         const tools = filteredTools(config);
         if (config.extension) {
+          // Shared browser for extension mode: create once, reuse across all
+          // HTTP clients. Without this, each client spawns a new Chrome +
+          // CDPRelayServer, breaking tab persistence and orphaning relays.
+          const sharedExtBrowser = await createBrowser(config, { cwd: process.cwd() });
           const serverBackendFactory: mcpServer.ServerBackendFactory = {
             name: 'Playwright w/ extension',
             nameInConfig: 'playwright-extension',
             version,
             toolSchemas: tools.map(tool => tool.schema),
-            create: async (clientInfo: ClientInfo) => {
-              const browser = await createBrowser(config, clientInfo);
-              const browserContext = browser.contexts()[0];
+            create: async (_clientInfo: ClientInfo) => {
+              const browserContext = sharedExtBrowser.contexts()[0];
               return new BrowserServerBackend(config, browserContext, tools);
             },
             disposed: async () => { }
