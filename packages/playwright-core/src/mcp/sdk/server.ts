@@ -34,6 +34,7 @@ const serverDebugResponse = debug('pw:mcp:server:response');
 
 export type ClientInfo = {
   cwd: string;
+  sessionId?: string;
 };
 
 export type ProgressParams = { message?: string, progress?: number, total?: number };
@@ -76,12 +77,12 @@ export type ServerBackendFactory = {
   disposed: (backend: ServerBackend) => Promise<void>;
 };
 
-export async function connect(factory: ServerBackendFactory, transport: Transport, runHeartbeat: boolean) {
-  const server = createServer(factory.name, factory.version, factory, runHeartbeat);
+export async function connect(factory: ServerBackendFactory, transport: Transport, runHeartbeat: boolean, sessionId?: string) {
+  const server = createServer(factory.name, factory.version, factory, runHeartbeat, sessionId);
   await server.connect(transport);
 }
 
-export function createServer(name: string, version: string, factory: ServerBackendFactory, runHeartbeat: boolean): Server {
+export function createServer(name: string, version: string, factory: ServerBackendFactory, runHeartbeat: boolean, sessionId?: string): Server {
   const server = new mcpBundle.Server({ name, version }, {
     capabilities: {
       tools: {},
@@ -118,7 +119,7 @@ export function createServer(name: string, version: string, factory: ServerBacke
 
     try {
       if (!backendPromise) {
-        backendPromise = initializeServer(server, factory, runHeartbeat).catch(e => {
+        backendPromise = initializeServer(server, factory, runHeartbeat, sessionId).catch(e => {
           backendPromise = undefined;
           throw e;
         });
@@ -145,7 +146,7 @@ export function createServer(name: string, version: string, factory: ServerBacke
   return server;
 }
 
-const initializeServer = async (server: Server, factory: ServerBackendFactory, runHeartbeat: boolean): Promise<ServerBackend> => {
+const initializeServer = async (server: Server, factory: ServerBackendFactory, runHeartbeat: boolean, sessionId?: string): Promise<ServerBackend> => {
   const capabilities = server.getClientCapabilities();
   let clientRoots: Root[] = [];
   if (capabilities?.roots) {
@@ -158,6 +159,7 @@ const initializeServer = async (server: Server, factory: ServerBackendFactory, r
 
   const clientInfo: ClientInfo = {
     cwd: firstRootPath(clientRoots),
+    sessionId,
   };
 
   const backend = await backendManager.createBackend(factory, clientInfo);

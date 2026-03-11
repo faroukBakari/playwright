@@ -19,6 +19,8 @@ import type { Tab } from './tab';
 
 export async function waitForCompletion<R>(tab: Tab, callback: () => Promise<R>): Promise<R> {
   const requests: playwright.Request[] = [];
+  const perf = tab.context.perfLog;
+  const perfConfig = tab.context.config.performance;
 
   const requestListener = (request: playwright.Request) => requests.push(request);
   const disposeListeners = () => {
@@ -26,17 +28,26 @@ export async function waitForCompletion<R>(tab: Tab, callback: () => Promise<R>)
   };
   tab.page.on('request', requestListener);
 
+  const postActionDelay = perfConfig?.postActionDelay ?? 100;
   let result: R;
   try {
     result = await callback();
-    await tab.waitForTimeout(500);
+    await perf.timeAsync({
+      phase: 'waitForCompletion', step: 'postActionDelay', side: 'chrome',
+      target_ms: postActionDelay,
+    }, () => tab.waitForTimeout(postActionDelay));
   } finally {
     disposeListeners();
   }
 
   const requestedNavigation = requests.some(request => request.isNavigationRequest());
   if (requestedNavigation) {
-    await tab.page.mainFrame().waitForLoadState('load', { timeout: 10000 }).catch(() => {});
+    const navState = perfConfig?.navigationLoadState ?? 'domcontentloaded';
+    const navTimeout = perfConfig?.navigationLoadTimeout ?? 5000;
+    await perf.timeAsync({
+      phase: 'waitForCompletion', step: 'navigationLoad', side: 'chrome',
+      target_ms: navTimeout, state: navState,
+    }, () => tab.page.mainFrame().waitForLoadState(navState, { timeout: navTimeout }).catch(() => {}));
     return result;
   }
 
@@ -47,10 +58,20 @@ export async function waitForCompletion<R>(tab: Tab, callback: () => Promise<R>)
     else
       promises.push(request.response().catch(() => {}));
   }
-  const timeout = new Promise<void>(resolve => setTimeout(resolve, 5000));
-  await Promise.race([Promise.all(promises), timeout]);
-  if (requests.length)
-    await tab.waitForTimeout(500);
+  const raceMs = perfConfig?.networkRaceTimeout ?? 3000;
+  const raceTimeout = new Promise<void>(resolve => setTimeout(resolve, raceMs));
+  await perf.timeAsync({
+    phase: 'waitForCompletion', step: 'networkRace', side: 'server',
+    target_ms: raceMs, requests: requests.length,
+  }, () => Promise.race([Promise.all(promises), raceTimeout]).then(() => {}));
+
+  if (requests.length) {
+    const postSettlementDelay = perfConfig?.postSettlementDelay ?? 10;
+    await perf.timeAsync({
+      phase: 'waitForCompletion', step: 'postSettlementDelay', side: 'chrome',
+      target_ms: postSettlementDelay,
+    }, () => tab.waitForTimeout(postSettlementDelay));
+  }
 
   return result;
 }

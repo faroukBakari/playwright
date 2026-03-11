@@ -290,7 +290,7 @@ export class Tab extends EventEmitter<TabEventsInterface> {
     return this === this.context.currentTab();
   }
 
-  async waitForLoadState(state: 'load', options?: { timeout?: number }): Promise<void> {
+  async waitForLoadState(state: 'load' | 'domcontentloaded', options?: { timeout?: number }): Promise<void> {
     await this._initializedPromise;
     await callOnPageNoTrace(this.page, page => page.waitForLoadState(state, options).catch(e => debug('pw:tools:error')(e)));
   }
@@ -321,8 +321,13 @@ export class Tab extends EventEmitter<TabEventsInterface> {
       return;
     }
 
-    // Cap load event to 5 seconds, the page is operational at this point.
-    await this.waitForLoadState('load', { timeout: 5000 });
+    // Cap load event — the page is operational at this point.
+    const postNavState = this.context.config.performance?.postNavigateLoadState ?? 'domcontentloaded';
+    const postNavTimeout = this.context.config.performance?.postNavigateLoadTimeout ?? 3000;
+    await this.context.perfLog.timeAsync({
+      phase: 'navigate', step: 'postNavigateLoad', side: 'chrome',
+      target_ms: postNavTimeout, state: postNavState,
+    }, () => this.waitForLoadState(postNavState, { timeout: postNavTimeout }));
   }
 
   async consoleMessageCount(): Promise<{ total: number, errors: number, warnings: number }> {
@@ -451,13 +456,19 @@ export class Tab extends EventEmitter<TabEventsInterface> {
   }
 
   async waitForTimeout(time: number) {
-    if (this._javaScriptBlocked()) {
-      await new Promise(f => setTimeout(f, time));
-      return;
-    }
+    return this.context.perfLog.timeAsync({
+      phase: 'waitForTimeout', step: 'sleep',
+      side: this._javaScriptBlocked() ? 'server' : 'chrome',
+      target_ms: time,
+    }, async () => {
+      if (this._javaScriptBlocked()) {
+        await new Promise(f => setTimeout(f, time));
+        return;
+      }
 
-    await callOnPageNoTrace(this.page, page => {
-      return page.evaluate(() => new Promise(f => setTimeout(f, 1000))).catch(() => {});
+      await callOnPageNoTrace(this.page, page => {
+        return page.evaluate((ms) => new Promise(f => setTimeout(f, ms)), time).catch(() => {});
+      });
     });
   }
 }

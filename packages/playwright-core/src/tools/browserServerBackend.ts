@@ -17,9 +17,11 @@
 import { Context } from './context';
 import { Response } from './response';
 import { SessionLog } from './sessionLog';
+import { createPerfLog } from './perfLog';
 import { debug } from '../utilsBundle';
 
 import type { ContextConfig } from './context';
+import type { PerfLog } from './perfLog';
 import type * as playwright from '../../types/types';
 import type { Tool } from './tool';
 import type * as mcpServer from '../mcp/sdk/server';
@@ -29,25 +31,34 @@ export class BrowserServerBackend implements ServerBackend {
   private _tools: Tool[];
   private _context: Context | undefined;
   private _sessionLog: SessionLog | undefined;
+  private _perfLog: PerfLog | undefined;
   private _config: ContextConfig;
+  private _serviceDir: string | undefined;
   readonly browserContext: playwright.BrowserContext;
 
-  constructor(config: ContextConfig, browserContext: playwright.BrowserContext, tools: Tool[]) {
+  constructor(config: ContextConfig, browserContext: playwright.BrowserContext, tools: Tool[], serviceDir?: string) {
     this._config = config;
     this._tools = tools;
     this.browserContext = browserContext;
+    this._serviceDir = serviceDir;
   }
 
   async initialize(clientInfo: ClientInfo): Promise<void> {
     this._sessionLog = this._config.saveSession ? await SessionLog.create(this._config, clientInfo.cwd) : undefined;
+    if (this._serviceDir)
+      this._perfLog = createPerfLog(this._serviceDir);
+    if (clientInfo.sessionId)
+      this._perfLog?.setSession(clientInfo.sessionId);
     this._context = new Context(this.browserContext, {
       config: this._config,
       sessionLog: this._sessionLog,
+      perfLog: this._perfLog,
       cwd: clientInfo.cwd,
     });
   }
 
   async dispose() {
+    this._perfLog?.close();
     await this._context?.dispose().catch(e => debug('pw:tools:error')(e));
   }
 
@@ -62,6 +73,7 @@ export class BrowserServerBackend implements ServerBackend {
     const parsedArguments = tool.schema.inputSchema.parse(rawArguments || {}) as any;
     const cwd = rawArguments?._meta && typeof rawArguments?._meta === 'object' && (rawArguments._meta as any)?.cwd;
     const context = this._context!;
+    context.perfLog.setTool(name);
     const response = new Response(context, name, parsedArguments, cwd);
     context.setRunningTool(name);
     let responseObject: mcpServer.CallToolResult;

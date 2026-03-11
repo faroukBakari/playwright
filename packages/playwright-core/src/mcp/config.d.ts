@@ -230,4 +230,29 @@ export type Config = {
    * Specify the language to use for code generation.
    */
   codegen?: 'typescript' | 'none';
+
+  performance?: {
+    /** Post-action request collection window (ms). Default: 100 */
+    postActionDelay?: number;
+    /** Post-settlement cooldown (ms). Default: 10 */
+    postSettlementDelay?: number;
+    /** Network race timeout (ms). Default: 3000 */
+    networkRaceTimeout?: number;
+    /** Navigation load state: 'load' | 'domcontentloaded'. Default: 'domcontentloaded' */
+    navigationLoadState?: 'load' | 'domcontentloaded';
+    /** Navigation load state timeout (ms). Default: 5000 */
+    navigationLoadTimeout?: number;
+    /** Post-navigate load state: 'load' | 'domcontentloaded'. Default: 'domcontentloaded' */
+    postNavigateLoadState?: 'load' | 'domcontentloaded';
+    /** Post-navigate load state timeout (ms). Default: 3000 */
+    postNavigateLoadTimeout?: number;
+    /** Interval in ms between fast-poll retries for text wait (default 200). */
+    waitFastPollInterval?: number;
+    /** Number of fast-poll retries before falling back to locator (default 5). */
+    waitFastPollRetries?: number;
+    /** Default wait timeout in ms (default 3000). */
+    waitDefaultTimeout?: number;
+    /** Maximum allowed wait timeout in ms (default 30000). */
+    waitMaxTimeout?: number;
+  };
 };

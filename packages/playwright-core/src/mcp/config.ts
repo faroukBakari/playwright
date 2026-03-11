@@ -93,6 +93,19 @@ export const defaultConfig: FullConfig = {
     navigation: 60000,
     expect: 5000,
   },
+  performance: {
+    postActionDelay: 100,
+    postSettlementDelay: 10,
+    networkRaceTimeout: 3000,
+    navigationLoadState: 'domcontentloaded' as const,
+    navigationLoadTimeout: 5000,
+    postNavigateLoadState: 'domcontentloaded' as const,
+    postNavigateLoadTimeout: 3000,
+    waitFastPollInterval: 200,
+    waitFastPollRetries: 5,
+    waitDefaultTimeout: 3000,
+    waitMaxTimeout: 30000,
+  },
 };
 
 type BrowserUserConfig = NonNullable<Config['browser']>;
@@ -310,7 +323,38 @@ export function configFromEnv(): Config & { configFile?: string } {
   options.userAgent = envToString(process.env.PLAYWRIGHT_MCP_USER_AGENT);
   options.userDataDir = envToString(process.env.PLAYWRIGHT_MCP_USER_DATA_DIR);
   options.viewportSize = resolutionParser('--viewport-size', process.env.PLAYWRIGHT_MCP_VIEWPORT_SIZE);
-  return configFromCLIOptions(options);
+  const config = configFromCLIOptions(options);
+
+  // Performance env var overrides (not routed through CLIOptions)
+  const perfOverrides: NonNullable<Config['performance']> = {};
+  const perfPostAction = numberParser(process.env.PLAYWRIGHT_MCP_PERF_POST_ACTION_DELAY);
+  if (perfPostAction !== undefined) perfOverrides.postActionDelay = perfPostAction;
+  const perfPostSettlement = numberParser(process.env.PLAYWRIGHT_MCP_PERF_POST_SETTLEMENT_DELAY);
+  if (perfPostSettlement !== undefined) perfOverrides.postSettlementDelay = perfPostSettlement;
+  const perfNetworkRace = numberParser(process.env.PLAYWRIGHT_MCP_PERF_NETWORK_RACE_TIMEOUT);
+  if (perfNetworkRace !== undefined) perfOverrides.networkRaceTimeout = perfNetworkRace;
+  const perfNavLoadState = envToString(process.env.PLAYWRIGHT_MCP_PERF_NAV_LOAD_STATE);
+  if (perfNavLoadState === 'load' || perfNavLoadState === 'domcontentloaded')
+    perfOverrides.navigationLoadState = perfNavLoadState;
+  const perfNavLoadTimeout = numberParser(process.env.PLAYWRIGHT_MCP_PERF_NAV_LOAD_TIMEOUT);
+  if (perfNavLoadTimeout !== undefined) perfOverrides.navigationLoadTimeout = perfNavLoadTimeout;
+  const perfPostNavLoadState = envToString(process.env.PLAYWRIGHT_MCP_PERF_POST_NAV_LOAD_STATE);
+  if (perfPostNavLoadState === 'load' || perfPostNavLoadState === 'domcontentloaded')
+    perfOverrides.postNavigateLoadState = perfPostNavLoadState;
+  const perfPostNavLoadTimeout = numberParser(process.env.PLAYWRIGHT_MCP_PERF_POST_NAV_LOAD_TIMEOUT);
+  if (perfPostNavLoadTimeout !== undefined) perfOverrides.postNavigateLoadTimeout = perfPostNavLoadTimeout;
+  const perfWaitFastPollInterval = numberParser(process.env.PLAYWRIGHT_MCP_PERF_WAIT_FAST_POLL_INTERVAL);
+  if (perfWaitFastPollInterval !== undefined) perfOverrides.waitFastPollInterval = perfWaitFastPollInterval;
+  const perfWaitFastPollRetries = numberParser(process.env.PLAYWRIGHT_MCP_PERF_WAIT_FAST_POLL_RETRIES);
+  if (perfWaitFastPollRetries !== undefined) perfOverrides.waitFastPollRetries = perfWaitFastPollRetries;
+  const perfWaitDefaultTimeout = numberParser(process.env.PLAYWRIGHT_MCP_PERF_WAIT_DEFAULT_TIMEOUT);
+  if (perfWaitDefaultTimeout !== undefined) perfOverrides.waitDefaultTimeout = perfWaitDefaultTimeout;
+  const perfWaitMaxTimeout = numberParser(process.env.PLAYWRIGHT_MCP_PERF_WAIT_MAX_TIMEOUT);
+  if (perfWaitMaxTimeout !== undefined) perfOverrides.waitMaxTimeout = perfWaitMaxTimeout;
+  if (Object.keys(perfOverrides).length > 0)
+    config.performance = { ...config.performance, ...perfOverrides };
+
+  return config;
 }
 
 export async function loadConfig(configFile: string | undefined): Promise<Config> {
@@ -377,6 +421,10 @@ export function mergeConfig(base: FullConfig, overrides: Config): FullConfig {
     timeouts: {
       ...pickDefined(base.timeouts),
       ...pickDefined(overrides.timeouts),
+    },
+    performance: {
+      ...pickDefined(base.performance),
+      ...pickDefined(overrides.performance),
     },
   } as FullConfig;
 }

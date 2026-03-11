@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+import path from 'path';
 import { ProgramOption } from '../utilsBundle';
 
 import * as mcpServer from './sdk/server';
@@ -89,6 +90,7 @@ export function decorateMCPCommand(command: Command, version: string) {
           options.caps.push('devtools');
 
         const config = await resolveCLIConfig(options);
+        const serviceDir = config.configFile ? path.dirname(config.configFile) : undefined;
         const tools = filteredTools(config);
         if (config.extension) {
           // Shared browser for extension mode: create once, reuse across all
@@ -102,7 +104,7 @@ export function decorateMCPCommand(command: Command, version: string) {
             toolSchemas: tools.map(tool => tool.schema),
             create: async (_clientInfo: ClientInfo) => {
               const browserContext = sharedExtBrowser.contexts()[0];
-              return new BrowserServerBackend(config, browserContext, tools);
+              return new BrowserServerBackend(config, browserContext, tools, serviceDir);
             },
             disposed: async () => { }
           };
@@ -121,7 +123,7 @@ export function decorateMCPCommand(command: Command, version: string) {
             clientCount++;
             const browser = sharedBrowser || await createBrowser(config, clientInfo);
             const browserContext = config.browser.isolated ? await browser.newContext(config.browser.contextOptions) : browser.contexts()[0];
-            return new BrowserServerBackend(config, browserContext, tools);
+            return new BrowserServerBackend(config, browserContext, tools, serviceDir);
           },
           disposed: async backend => {
             clientCount--;

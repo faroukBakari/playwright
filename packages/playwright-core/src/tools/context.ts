@@ -25,6 +25,7 @@ import { selectors } from '../..';
 
 import { Tab } from './tab';
 import { relayHttpUrl } from '../mcp/extensionContextFactory';
+import { nullPerfLog } from './perfLog';
 
 import type * as playwright from '../..';
 import type { SessionLog } from './sessionLog';
@@ -32,6 +33,7 @@ import type { Tracing } from '../client/tracing';
 import type { Disposable } from '../client/disposable';
 import type { BrowserContext } from '../client/browserContext';
 import type { ToolCapability } from './tool';
+import type { PerfLog } from './perfLog';
 
 const testDebug = debug('pw:mcp:test');
 
@@ -64,11 +66,25 @@ export type ContextConfig = {
     initPage?: string[];
   };
   skillMode?: boolean;
+  performance?: {
+    postActionDelay?: number;
+    postSettlementDelay?: number;
+    networkRaceTimeout?: number;
+    navigationLoadState?: 'load' | 'domcontentloaded';
+    navigationLoadTimeout?: number;
+    postNavigateLoadState?: 'load' | 'domcontentloaded';
+    postNavigateLoadTimeout?: number;
+    waitFastPollInterval?: number;
+    waitFastPollRetries?: number;
+    waitDefaultTimeout?: number;
+    waitMaxTimeout?: number;
+  };
 };
 
 type ContextOptions = {
   config: ContextConfig;
   sessionLog?: SessionLog;
+  perfLog?: PerfLog;
   cwd: string;
 };
 
@@ -94,6 +110,7 @@ type VideoParams = NonNullable<Parameters<playwright.Video['start']>[0]>;
 export class Context {
   readonly config: ContextConfig;
   readonly sessionLog: SessionLog | undefined;
+  readonly perfLog: PerfLog;
   readonly options: ContextOptions;
   private _rawBrowserContext: playwright.BrowserContext;
   private _browserContextPromise: Promise<playwright.BrowserContext> | undefined;
@@ -111,6 +128,7 @@ export class Context {
   constructor(browserContext: playwright.BrowserContext, options: ContextOptions) {
     this.config = options.config;
     this.sessionLog = options.sessionLog;
+    this.perfLog = options.perfLog ?? nullPerfLog;
     this.options = options;
     this._rawBrowserContext = browserContext;
     testDebug('create context');
