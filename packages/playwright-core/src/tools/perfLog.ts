@@ -47,14 +47,25 @@ export class PerfLog {
   async timeAsync<T>(
     entry: Omit<PerfEntry, 'ts' | 'actual_ms' | 'sid' | 'tool'>,
     fn: () => Promise<T>,
+    extras?: (result: T | undefined, error?: unknown) => Record<string, any>,
   ): Promise<T> {
     const start = performance.now();
+    let result: T | undefined;
+    let extraFields: Record<string, any> = {};
     try {
-      return await fn();
+      result = await fn();
+      if (extras)
+        extraFields = extras(result);
+      return result;
+    } catch (e) {
+      if (extras)
+        extraFields = extras(undefined, e);
+      throw e;
     } finally {
       const actual_ms = Math.round(performance.now() - start);
       this._write({
         ...entry as PerfEntry,
+        ...extraFields,
         actual_ms,
         ts: new Date().toISOString(),
         sid: this._sessionId,
@@ -87,7 +98,7 @@ export class PerfLog {
 /** No-op PerfLog that never writes — used when perf logging is unavailable. */
 class NullPerfLog extends PerfLog {
   constructor() { super(''); }
-  override async timeAsync<T>(_entry: any, fn: () => Promise<T>): Promise<T> {
+  override async timeAsync<T>(_entry: any, fn: () => Promise<T>, _extras?: any): Promise<T> {
     return fn();
   }
   override close() {}
