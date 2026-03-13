@@ -218,6 +218,20 @@ export type Config = {
      * When taking snapshots for responses, specifies the mode to use.
      */
     mode?: 'incremental' | 'full' | 'none';
+
+    /**
+     * Maximum character count for snapshot text in responses. Snapshots exceeding
+     * this limit are truncated with a footer indicating the original size.
+     * Undefined means no limit.
+     */
+    maxChars?: number;
+
+    /**
+     * When true, snapshots only include interactable elements and their ancestor
+     * containers. Non-interactive text nodes, decorative elements, and layout
+     * containers are filtered out. Reduces snapshot size by 50-80% on complex pages.
+     */
+    interactableOnly?: boolean;
   };
 
   /**

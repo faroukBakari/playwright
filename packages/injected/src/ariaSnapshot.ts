@@ -40,6 +40,8 @@ export type AriaTreeOptions = {
   mode: 'ai' | 'expect' | 'codegen' | 'autoexpect';
   refPrefix?: string;
   doNotRenderActive?: boolean;
+  interactableOnly?: boolean;
+  rootSelector?: string;
 };
 
 type InternalOptions = {
@@ -50,6 +52,7 @@ type InternalOptions = {
   renderCursorPointer?: boolean,
   renderActive?: boolean,
   renderStringsAsRegex?: boolean,
+  interactableOnly?: boolean,
 };
 
 function toInternalOptions(options: AriaTreeOptions): InternalOptions {
@@ -62,6 +65,7 @@ function toInternalOptions(options: AriaTreeOptions): InternalOptions {
       includeGenericRole: true,
       renderActive: !options.doNotRenderActive,
       renderCursorPointer: true,
+      interactableOnly: options.interactableOnly,
     };
   }
   if (options.mode === 'autoexpect') {
@@ -563,11 +567,45 @@ function filterSnapshotDiff(nodes: (aria.AriaNode | string)[], statusMap: Map<ar
   return result;
 }
 
-export function renderAriaTree(ariaSnapshot: AriaSnapshot, publicOptions: AriaTreeOptions, previousSnapshot?: AriaSnapshot): string {
+// Computes which nodes have at least one descendant with a ref (interactive).
+// Used by interactableOnly mode to decide which container nodes to keep.
+function computeHasInteractiveDescendant(root: aria.AriaNode): Set<aria.AriaNode> {
+  const result = new Set<aria.AriaNode>();
+  const visit = (node: aria.AriaNode): boolean => {
+    let found = false;
+    for (const child of node.children) {
+      if (typeof child === 'string')
+        continue;
+      if (child.ref)
+        found = true;
+      if (visit(child))
+        found = true;
+    }
+    if (found)
+      result.add(node);
+    return found;
+  };
+  visit(root);
+  return result;
+}
+
+export type RenderFilterStats = {
+  nodesTotal: number;
+  nodesRendered: number;
+  nodesSkipped: number;
+};
+
+export function renderAriaTree(ariaSnapshot: AriaSnapshot, publicOptions: AriaTreeOptions, previousSnapshot?: AriaSnapshot, outFilterStats?: RenderFilterStats): string {
   const options = toInternalOptions(publicOptions);
   const lines: string[] = [];
   const includeText = options.renderStringsAsRegex ? textContributesInfo : () => true;
   const renderString = options.renderStringsAsRegex ? convertToBestGuessRegex : (str: string) => str;
+
+  // Pre-compute interactive ancestor set for interactableOnly filtering.
+  const hasInteractiveChild = options.interactableOnly ? computeHasInteractiveDescendant(ariaSnapshot.root) : undefined;
+  // Counters for interactableOnly filter metrics.
+  let filterNodesTotal = 0;
+  let filterNodesSkipped = 0;
 
   // Do not render the root fragment, just its children.
   let nodesToRender = ariaSnapshot.root.role === 'fragment' ? ariaSnapshot.root.children : [ariaSnapshot.root];
@@ -624,6 +662,17 @@ export function renderAriaTree(ariaSnapshot: AriaSnapshot, publicOptions: AriaTr
   };
 
   const visit = (ariaNode: aria.AriaNode, indent: string, renderCursorPointer: boolean) => {
+    // In interactableOnly mode, skip nodes that have no ref and no interactive descendants.
+    // Nodes with refs are always rendered. Container nodes with interactive descendants
+    // are rendered to preserve tree structure. Everything else is pruned.
+    if (hasInteractiveChild) {
+      filterNodesTotal++;
+      if (!ariaNode.ref && !hasInteractiveChild.has(ariaNode)) {
+        filterNodesSkipped++;
+        return;
+      }
+    }
+
     // Replace the whole subtree with a single reference when possible.
     if (statusMap.get(ariaNode) === 'same' && ariaNode.ref) {
       lines.push(indent + `- ref=${ariaNode.ref} [unchanged]`);
@@ -668,6 +717,14 @@ export function renderAriaTree(ariaSnapshot: AriaSnapshot, publicOptions: AriaTr
     else
       visit(nodeToRender, '', !!options.renderCursorPointer);
   }
+
+  // Populate filter stats if caller wants them (for logging/metrics).
+  if (outFilterStats && hasInteractiveChild) {
+    outFilterStats.nodesTotal = filterNodesTotal;
+    outFilterStats.nodesRendered = filterNodesTotal - filterNodesSkipped;
+    outFilterStats.nodesSkipped = filterNodesSkipped;
+  }
+
   return lines.join('\n');
 }
 

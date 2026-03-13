@@ -380,11 +380,21 @@ export class Tab extends EventEmitter<TabEventsInterface> {
     this._requests.length = 0;
   }
 
-  async captureSnapshot(relativeTo: string | undefined): Promise<TabSnapshot> {
+  async captureSnapshot(relativeTo: string | undefined, options?: { rootSelector?: string }): Promise<TabSnapshot> {
     await this._initializedPromise;
+    const interactableOnly = this.context.config.snapshot?.interactableOnly;
+    const rootSelector = options?.rootSelector;
     let tabSnapshot: TabSnapshot | undefined;
     const modalStates = await this._raceAgainstModalStates(async () => {
-      const snapshot = await this.page._snapshotForAI({ track: 'response' });
+      const snapshot = await this.context.perfLog.timeAsync({
+        phase: 'snapshot', step: 'capture', side: 'chrome',
+        target_ms: 8000,
+        interactableOnly: !!interactableOnly,
+        rootSelector: rootSelector || undefined,
+      }, () => this.page._snapshotForAI({ track: 'response', interactableOnly, rootSelector }), (result) => ({
+        full_chars: result?.full.length ?? 0,
+        diff_chars: result?.incremental?.length,
+      }));
       tabSnapshot = {
         ariaSnapshot: snapshot.full,
         ariaSnapshotDiff: this._needsFullSnapshot ? undefined : snapshot.incremental,

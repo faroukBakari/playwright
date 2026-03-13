@@ -48,17 +48,21 @@ export class Response {
   private _includeSnapshot: 'none' | 'full' | 'incremental' = 'none';
   private _includeSnapshotFileName: string | undefined;
   private _isClose: boolean = false;
+  private _snapshotOverride: boolean | undefined;
+  private _snapshotSelector: string | undefined;
 
   readonly toolName: string;
   readonly toolArgs: Record<string, any>;
   private _clientWorkspace: string;
   private _imageResults: { data: Buffer, imageType: 'png' | 'jpeg' }[] = [];
 
-  constructor(context: Context, toolName: string, toolArgs: Record<string, any>, relativeTo?: string) {
+  constructor(context: Context, toolName: string, toolArgs: Record<string, any>, relativeTo?: string, snapshotOverride?: boolean, snapshotSelector?: string) {
     this._context = context;
     this.toolName = toolName;
     this.toolArgs = toolArgs;
     this._clientWorkspace = relativeTo ?? context.options.cwd;
+    this._snapshotOverride = snapshotOverride;
+    this._snapshotSelector = snapshotSelector;
   }
 
   private _computRelativeTo(fileName: string): string {
@@ -119,10 +123,14 @@ export class Response {
   }
 
   setIncludeSnapshot() {
+    if (this._snapshotOverride === false)
+      return;
     this._includeSnapshot = this._context.config.snapshot?.mode || 'incremental';
   }
 
   setIncludeFullSnapshot(includeSnapshotFileName?: string) {
+    if (this._snapshotOverride === false)
+      return;
     this._includeSnapshot = 'full';
     this._includeSnapshotFileName = includeSnapshotFileName;
   }
@@ -189,7 +197,9 @@ export class Response {
       addSection('Ran Playwright code', this._code, 'js');
 
     // Render tab titles upon changes or when more than one tab.
-    const tabSnapshot = this._context.currentTab() ? await this._context.currentTabOrDie().captureSnapshot(this._clientWorkspace) : undefined;
+    if (this._snapshotSelector)
+      requestDebug('snapshotSelector=%s for tool=%s', this._snapshotSelector, this.toolName);
+    const tabSnapshot = this._context.currentTab() ? await this._context.currentTabOrDie().captureSnapshot(this._clientWorkspace, { rootSelector: this._snapshotSelector }) : undefined;
     const tabHeaders = await Promise.all(this._context.tabs().map(tab => tab.headerSnapshot()));
     if (this._includeSnapshot !== 'none' || tabHeaders.some(header => header.changed)) {
       if (tabHeaders.length !== 1)
@@ -205,7 +215,10 @@ export class Response {
 
     // Handle tab snapshot
     if (tabSnapshot && this._includeSnapshot !== 'none') {
-      const snapshot = this._includeSnapshot === 'full' ? tabSnapshot.ariaSnapshot : tabSnapshot.ariaSnapshotDiff ?? tabSnapshot.ariaSnapshot;
+      let snapshot = this._includeSnapshot === 'full' ? tabSnapshot.ariaSnapshot : tabSnapshot.ariaSnapshotDiff ?? tabSnapshot.ariaSnapshot;
+      const maxChars = this._context.config.snapshot?.maxChars;
+      if (maxChars && snapshot.length > maxChars)
+        snapshot = snapshot.slice(0, maxChars) + `\n... [truncated: ${snapshot.length} chars, limit ${maxChars}]`;
       if (this._context.config.outputMode === 'file' || this._includeSnapshotFileName) {
         const resolvedFile = await this.resolveClientFile({ prefix: 'page', ext: 'yml', suggestedFilename: this._includeSnapshotFileName }, 'Snapshot');
         await fs.promises.writeFile(resolvedFile.fileName, snapshot, 'utf-8');

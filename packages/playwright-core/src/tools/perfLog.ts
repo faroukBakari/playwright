@@ -25,6 +25,7 @@ export interface PerfEntry {
   ts: string;
   sid?: string;
   tool?: string;
+  callId?: string;
   phase: string;
   step: string;
   side: 'chrome' | 'server';
@@ -38,11 +39,13 @@ export class PerfLog {
   private _stream: fs.WriteStream | null = null;
   private _sessionId?: string;
   private _toolName?: string;
+  private _callId?: string;
 
   constructor(private _logDir: string) {}
 
   setSession(sessionId: string) { this._sessionId = sessionId; }
   setTool(toolName: string) { this._toolName = toolName; }
+  setCallId(callId: string | undefined) { this._callId = callId; }
 
   async timeAsync<T>(
     entry: Omit<PerfEntry, 'ts' | 'actual_ms' | 'sid' | 'tool'>,
@@ -70,6 +73,7 @@ export class PerfLog {
         ts: new Date().toISOString(),
         sid: this._sessionId,
         tool: this._toolName,
+        callId: this._callId,
       });
     }
   }

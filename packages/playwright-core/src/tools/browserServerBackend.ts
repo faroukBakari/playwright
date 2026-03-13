@@ -19,6 +19,7 @@ import { Response } from './response';
 import { SessionLog } from './sessionLog';
 import { createPerfLog } from './perfLog';
 import { debug } from '../utilsBundle';
+import crypto from 'crypto';
 
 import type { ContextConfig } from './context';
 import type { PerfLog } from './perfLog';
@@ -72,14 +73,27 @@ export class BrowserServerBackend implements ServerBackend {
     }
     const parsedArguments = tool.schema.inputSchema.parse(rawArguments || {}) as any;
     const cwd = rawArguments?._meta && typeof rawArguments?._meta === 'object' && (rawArguments._meta as any)?.cwd;
+    const includeSnapshot = rawArguments?.includeSnapshot !== undefined ? Boolean(rawArguments.includeSnapshot) : undefined;
+    const snapshotSelector = rawArguments?.snapshotSelector !== undefined ? String(rawArguments.snapshotSelector) : undefined;
     const context = this._context!;
+    const callId = crypto.randomUUID();
     context.perfLog.setTool(name);
-    const response = new Response(context, name, parsedArguments, cwd);
+    context.perfLog.setCallId(callId);
+    const response = new Response(context, name, parsedArguments, cwd, includeSnapshot, snapshotSelector);
     context.setRunningTool(name);
     let responseObject: mcpServer.CallToolResult;
     try {
-      await tool.handle(context, parsedArguments, response);
-      responseObject = await response.serialize();
+      responseObject = await context.perfLog.timeAsync(
+        { phase: 'tool', step: 'e2e', side: 'server', target_ms: 0 },
+        async () => {
+          await tool.handle(context, parsedArguments, response);
+          return await response.serialize();
+        },
+        (result) => ({
+          args_keys: Object.keys(parsedArguments),
+          response_chars: result ? JSON.stringify(result).length : 0,
+        }),
+      );
       this._sessionLog?.logResponse(name, parsedArguments, responseObject);
     } catch (error: any) {
       return {
@@ -88,6 +102,7 @@ export class BrowserServerBackend implements ServerBackend {
       };
     } finally {
       context.setRunningTool(undefined);
+      context.perfLog.setCallId(undefined);
     }
     return responseObject;
   }

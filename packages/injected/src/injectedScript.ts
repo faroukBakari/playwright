@@ -37,7 +37,7 @@ import type { CSSComplexSelectorList } from '@isomorphic/cssParser';
 import type { Language } from '@isomorphic/locatorGenerators';
 import type { NestedSelectorBody, ParsedSelector, ParsedSelectorPart } from '@isomorphic/selectorParser';
 import type * as channels from '@protocol/channels';
-import type { AriaSnapshot, AriaTreeOptions } from './ariaSnapshot';
+import type { AriaSnapshot, AriaTreeOptions, RenderFilterStats } from './ariaSnapshot';
 import type { LayoutSelectorName } from './layoutSelectorUtils';
 import type { SelectorEngine, SelectorRoot } from './selectorEngine';
 import type { GenerateSelectorOptions } from './selectorGenerator';
@@ -306,20 +306,30 @@ export class InjectedScript {
     return this.incrementalAriaSnapshot(node, options).full;
   }
 
-  incrementalAriaSnapshot(node: Node, options: AriaTreeOptions & { track?: string }): { full: string, incremental?: string, iframeRefs: string[] } {
+  incrementalAriaSnapshot(node: Node, options: AriaTreeOptions & { track?: string }): { full: string, incremental?: string, iframeRefs: string[], filterStats?: RenderFilterStats, selectorResolved?: boolean } {
     if (node.nodeType !== Node.ELEMENT_NODE)
       throw this.createStacklessError('Can only capture aria snapshot of Element nodes.');
-    const ariaSnapshot = generateAriaTree(node as Element, options);
-    const full = renderAriaTree(ariaSnapshot, options);
+    // Resolve rootSelector to scope the snapshot to a DOM subtree.
+    let rootElement = node as Element;
+    let selectorResolved: boolean | undefined;
+    if (options.rootSelector) {
+      const selected = rootElement.querySelector(options.rootSelector);
+      selectorResolved = !!selected;
+      if (selected)
+        rootElement = selected;
+    }
+    const ariaSnapshot = generateAriaTree(rootElement, options);
+    const filterStats: RenderFilterStats = { nodesTotal: 0, nodesRendered: 0, nodesSkipped: 0 };
+    const full = renderAriaTree(ariaSnapshot, options, undefined, options.interactableOnly ? filterStats : undefined);
     let incremental: string | undefined;
     if (options.track) {
       const previousSnapshot = this._lastAriaSnapshotForTrack.get(options.track);
       if (previousSnapshot)
-        incremental = renderAriaTree(ariaSnapshot, options, previousSnapshot);
+        incremental = renderAriaTree(ariaSnapshot, options, previousSnapshot, options.interactableOnly ? filterStats : undefined);
       this._lastAriaSnapshotForTrack.set(options.track, ariaSnapshot);
     }
     this._lastAriaSnapshotForQuery = ariaSnapshot;
-    return { full, incremental, iframeRefs: ariaSnapshot.iframeRefs };
+    return { full, incremental, iframeRefs: ariaSnapshot.iframeRefs, filterStats: options.interactableOnly ? filterStats : undefined, selectorResolved };
   }
 
   ariaSnapshotForRecorder(): { ariaSnapshot: string, refs: Map<Element, string> } {

@@ -2611,9 +2611,13 @@ export type PageRequestsResult = {
 export type PageSnapshotForAIParams = {
   track?: string,
   timeout: number,
+  interactableOnly?: boolean,
+  rootSelector?: string,
 };
 export type PageSnapshotForAIOptions = {
   track?: string,
+  interactableOnly?: boolean,
+  rootSelector?: string,
 };
 export type PageSnapshotForAIResult = {
   full: string,

@@ -870,9 +870,24 @@ export class Page extends SdkObject<PageEventMap> {
     await Promise.all(this.frames().map(frame => frame.hideHighlight().catch(() => {})));
   }
 
-  async snapshotForAI(progress: Progress, options: { track?: string, doNotRenderActive?: boolean } = {}): Promise<{ full: string, incremental?: string }> {
+  async snapshotForAI(progress: Progress, options: { track?: string, doNotRenderActive?: boolean, interactableOnly?: boolean, rootSelector?: string } = {}): Promise<{ full: string, incremental?: string }> {
     const snapshot = await snapshotFrameForAI(progress, this.mainFrame(), options);
-    return { full: snapshot.full.join('\n'), incremental: snapshot.incremental?.join('\n') };
+    const full = snapshot.full.join('\n');
+    const incremental = snapshot.incremental?.join('\n');
+
+    // Log filter metrics when interactableOnly or rootSelector are active.
+    if (snapshot.filterStats || snapshot.selectorResolved !== undefined) {
+      const stats = snapshot.filterStats;
+      const parts: string[] = [];
+      if (stats)
+        parts.push(`interactableOnly: ${stats.nodesRendered}/${stats.nodesTotal} nodes rendered (${stats.nodesSkipped} skipped)`);
+      if (options.rootSelector)
+        parts.push(`rootSelector="${options.rootSelector}" resolved=${snapshot.selectorResolved}`);
+      parts.push(`chars=${full.length}`);
+      debugLogger.log('api', `snapshotForAI filter: ${parts.join(', ')}`);
+    }
+
+    return { full, incremental };
   }
 
   async setDockTile(image: Buffer) {
@@ -1006,7 +1021,7 @@ export class InitScript extends DisposableObject {
   }
 }
 
-async function snapshotFrameForAI(progress: Progress, frame: frames.Frame, options: { track?: string, doNotRenderActive?: boolean } = {}): Promise<{ full: string[], incremental?: string[] }> {
+async function snapshotFrameForAI(progress: Progress, frame: frames.Frame, options: { track?: string, doNotRenderActive?: boolean, interactableOnly?: boolean, rootSelector?: string } = {}): Promise<{ full: string[], incremental?: string[], filterStats?: { nodesTotal: number, nodesRendered: number, nodesSkipped: number }, selectorResolved?: boolean }> {
   // Only await the topmost navigations, inner frames will be empty when racing.
   const snapshot = await frame.retryWithProgressAndTimeouts(progress, [1000, 2000, 4000, 8000], async continuePolling => {
     try {
@@ -1017,7 +1032,7 @@ async function snapshotFrameForAI(progress: Progress, frame: frames.Frame, optio
         if (!node)
           return true;
         return injected.incrementalAriaSnapshot(node, { mode: 'ai', ...options });
-      }, { refPrefix: frame.seq ? 'f' + frame.seq : '', track: options.track, doNotRenderActive: options.doNotRenderActive }));
+      }, { refPrefix: frame.seq ? 'f' + frame.seq : '', track: options.track, doNotRenderActive: options.doNotRenderActive, interactableOnly: options.interactableOnly, rootSelector: options.rootSelector }));
       if (snapshotOrRetry === true)
         return continuePolling;
       return snapshotOrRetry;
@@ -1059,10 +1074,10 @@ async function snapshotFrameForAI(progress: Progress, frame: frames.Frame, optio
     full.push(...childSnapshot.full.map(l => leadingSpace + '  ' + l));
   }
 
-  return { full, incremental };
+  return { full, incremental, filterStats: snapshot.filterStats, selectorResolved: snapshot.selectorResolved };
 }
 
-async function snapshotFrameRefForAI(progress: Progress, parentFrame: frames.Frame, frameRef: string, options: { track?: string, mode?: 'full' | 'incremental' }): Promise<{ full: string[], incremental?: string[] }> {
+async function snapshotFrameRefForAI(progress: Progress, parentFrame: frames.Frame, frameRef: string, options: { track?: string, mode?: 'full' | 'incremental', interactableOnly?: boolean, rootSelector?: string }): Promise<{ full: string[], incremental?: string[] }> {
   const frameSelector = `aria-ref=${frameRef} >> internal:control=enter-frame`;
   const frameBodySelector = `${frameSelector} >> body`;
   const child = await progress.race(parentFrame.selectors.resolveFrameForSelector(frameBodySelector, { strict: true }));

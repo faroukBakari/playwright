@@ -325,6 +325,14 @@ export function configFromEnv(): Config & { configFile?: string } {
   options.viewportSize = resolutionParser('--viewport-size', process.env.PLAYWRIGHT_MCP_VIEWPORT_SIZE);
   const config = configFromCLIOptions(options);
 
+  // Snapshot env var overrides (not routed through CLIOptions)
+  const snapshotMaxChars = numberParser(process.env.PLAYWRIGHT_MCP_SNAPSHOT_MAX_CHARS);
+  if (snapshotMaxChars !== undefined)
+    config.snapshot = { ...config.snapshot, maxChars: snapshotMaxChars };
+  const snapshotInteractableOnly = envToBoolean(process.env.PLAYWRIGHT_MCP_SNAPSHOT_INTERACTABLE_ONLY);
+  if (snapshotInteractableOnly !== undefined)
+    config.snapshot = { ...config.snapshot, interactableOnly: snapshotInteractableOnly };
+
   // Performance env var overrides (not routed through CLIOptions)
   const perfOverrides: NonNullable<Config['performance']> = {};
   const perfPostAction = numberParser(process.env.PLAYWRIGHT_MCP_PERF_POST_ACTION_DELAY);

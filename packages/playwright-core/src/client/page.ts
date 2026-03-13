@@ -875,8 +875,8 @@ export class Page extends ChannelOwner<channels.PageChannel> implements api.Page
     return pageAgent;
   }
 
-  async _snapshotForAI(options: TimeoutOptions & { track?: string } = {}): Promise<{ full: string, incremental?: string }> {
-    return await this._channel.snapshotForAI({ timeout: this._timeoutSettings.timeout(options), track: options.track });
+  async _snapshotForAI(options: TimeoutOptions & { track?: string, interactableOnly?: boolean, rootSelector?: string } = {}): Promise<{ full: string, incremental?: string }> {
+    return await this._channel.snapshotForAI({ timeout: this._timeoutSettings.timeout(options), track: options.track, interactableOnly: options.interactableOnly, rootSelector: options.rootSelector });
   }
 
   async _setDockTile(image: Buffer) {

@@ -54,6 +54,8 @@ export type ContextConfig = {
   secrets?: Record<string, string>;
   snapshot?: {
     mode?: 'incremental' | 'full' | 'none';
+    maxChars?: number;
+    interactableOnly?: boolean;
   };
   testIdAttribute?: string;
   timeouts?: {

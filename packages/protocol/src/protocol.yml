@@ -2004,6 +2004,8 @@ Page:
         # When track is present, an incremental snapshot is returned when possible.
         track: string?
         timeout: float
+        interactableOnly: boolean?
+        rootSelector: string?
       returns:
         full: string
         incremental: string?
