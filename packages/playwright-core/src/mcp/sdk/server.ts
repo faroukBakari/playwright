@@ -137,6 +137,8 @@ export function createServer(name: string, version: string, factory: ServerBacke
       serverDebugResponse('callResult', mergedResult);
       return mergedResult;
     } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error(`[MCP] callTool error (${request.params.name}):`, error);
       return {
         content: [{ type: 'text', text: '### Error\n' + String(error) }],
         isError: true,

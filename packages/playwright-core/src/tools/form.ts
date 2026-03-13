@@ -25,7 +25,7 @@ const fillForm = defineTabTool({
   schema: {
     name: 'browser_fill_form',
     title: 'Fill form',
-    description: 'Fill multiple form fields',
+    description: 'Fill multiple form fields. Returns a snapshot after filling. Pass includeSnapshot: false to suppress the snapshot when verifying via browser_evaluate instead.',
     inputSchema: z.object({
       fields: z.array(z.object({
         name: z.string().describe('Human-readable field name'),

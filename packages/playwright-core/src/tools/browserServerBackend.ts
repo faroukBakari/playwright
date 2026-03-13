@@ -18,11 +18,13 @@ import { Context } from './context';
 import { Response } from './response';
 import { SessionLog } from './sessionLog';
 import { createPerfLog } from './perfLog';
+import { createErrorLog } from './errorLog';
 import { debug } from '../utilsBundle';
 import crypto from 'crypto';
 
 import type { ContextConfig } from './context';
 import type { PerfLog } from './perfLog';
+import type { ErrorLog } from './errorLog';
 import type * as playwright from '../../types/types';
 import type { Tool } from './tool';
 import type * as mcpServer from '../mcp/sdk/server';
@@ -33,6 +35,7 @@ export class BrowserServerBackend implements ServerBackend {
   private _context: Context | undefined;
   private _sessionLog: SessionLog | undefined;
   private _perfLog: PerfLog | undefined;
+  private _errorLog: ErrorLog | undefined;
   private _config: ContextConfig;
   private _serviceDir: string | undefined;
   readonly browserContext: playwright.BrowserContext;
@@ -46,10 +49,14 @@ export class BrowserServerBackend implements ServerBackend {
 
   async initialize(clientInfo: ClientInfo): Promise<void> {
     this._sessionLog = this._config.saveSession ? await SessionLog.create(this._config, clientInfo.cwd) : undefined;
-    if (this._serviceDir)
+    if (this._serviceDir) {
       this._perfLog = createPerfLog(this._serviceDir);
-    if (clientInfo.sessionId)
+      this._errorLog = createErrorLog(this._serviceDir);
+    }
+    if (clientInfo.sessionId) {
       this._perfLog?.setSession(clientInfo.sessionId);
+      this._errorLog?.setSession(clientInfo.sessionId);
+    }
     this._context = new Context(this.browserContext, {
       config: this._config,
       sessionLog: this._sessionLog,
@@ -60,6 +67,7 @@ export class BrowserServerBackend implements ServerBackend {
 
   async dispose() {
     this._perfLog?.close();
+    this._errorLog?.close();
     await this._context?.dispose().catch(e => debug('pw:tools:error')(e));
   }
 
@@ -96,6 +104,7 @@ export class BrowserServerBackend implements ServerBackend {
       );
       this._sessionLog?.logResponse(name, parsedArguments, responseObject);
     } catch (error: any) {
+      this._errorLog?.log(name, callId, error);
       return {
         content: [{ type: 'text' as const, text: `### Error\n${String(error)}` }],
         isError: true,

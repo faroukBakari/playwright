@@ -85,7 +85,7 @@ const type = defineTabTool({
   schema: {
     name: 'browser_type',
     title: 'Type text',
-    description: 'Type text into editable element',
+    description: 'Type text into editable element. Returns a snapshot after typing. Pass includeSnapshot: false to suppress the snapshot and save tokens.',
     inputSchema: typeSchema,
     type: 'input',
   },
