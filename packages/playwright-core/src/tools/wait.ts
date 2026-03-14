@@ -346,6 +346,8 @@ On timeout, returns current page state — you decide the next step.`,
   },
 });
 
+export { resolveTimeout, handleText, handleSelector, handleUrl };
+
 export default [
   wait,
 ];

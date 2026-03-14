@@ -16,6 +16,7 @@
 
 import { z } from '../mcpBundle';
 import { defineTool, defineTabTool } from './tool';
+import { resolveTimeout, handleText, handleSelector, handleUrl } from './wait';
 
 const navigate = defineTool({
   capability: 'core-navigation',
@@ -98,8 +99,64 @@ const reload = defineTabTool({
   },
 });
 
+const navigateAndWait = defineTool({
+  capability: 'core-navigation',
+
+  schema: {
+    name: 'browser_navigate_and_wait',
+    title: 'Navigate and wait',
+    description: `Navigate to a URL, then wait for a condition before returning the snapshot. Combines browser_navigate + browser_wait_for into one call. Use when you know the page needs time to render dynamic content after navigation.`,
+    inputSchema: z.object({
+      url: z.string().describe('The URL to navigate to'),
+      waitForText: z.string().optional().describe('Text to wait for after navigation'),
+      waitForSelector: z.string().optional().describe('CSS selector to wait for after navigation'),
+      waitForUrl: z.string().optional().describe('URL glob pattern to wait for (e.g. after redirects)'),
+      timeout: z.number().optional().describe('Wait timeout in seconds (default 3)'),
+    }),
+    type: 'action',
+  },
+
+  handle: async (context, params, response) => {
+    // Phase 1: Navigate
+    const tab = await context.ensureTab();
+    let url = params.url;
+    try {
+      new URL(url);
+    } catch (e) {
+      if (url.startsWith('localhost'))
+        url = 'http://' + url;
+      else
+        url = 'https://' + url;
+    }
+    await tab.navigate(url);
+
+    // Phase 2: Wait for condition (if any specified)
+    const conditionKeys = (['waitForText', 'waitForSelector', 'waitForUrl'] as const)
+      .filter(k => params[k] !== undefined);
+
+    if (conditionKeys.length > 1)
+      throw new Error(`Only one wait condition per call, got: ${conditionKeys.join(', ')}`);
+
+    if (conditionKeys.length === 1) {
+      const key = conditionKeys[0];
+      const value = params[key]!;
+      const timeoutMs = resolveTimeout(tab, { timeout: params.timeout });
+
+      if (key === 'waitForText')
+        await handleText(tab, { text: value }, response, timeoutMs);
+      else if (key === 'waitForSelector')
+        await handleSelector(tab, { selector: value }, response, timeoutMs);
+      else if (key === 'waitForUrl')
+        await handleUrl(tab, { url: value }, response, timeoutMs);
+    }
+
+    response.setIncludeSnapshot();
+  },
+});
+
 export default [
   navigate,
+  navigateAndWait,
   goBack,
   goForward,
   reload,

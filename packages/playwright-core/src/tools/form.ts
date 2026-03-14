@@ -25,7 +25,7 @@ const fillForm = defineTabTool({
   schema: {
     name: 'browser_fill_form',
     title: 'Fill form',
-    description: 'Fill multiple form fields. Returns a snapshot after filling. Pass includeSnapshot: false to suppress the snapshot when verifying via browser_evaluate instead.',
+    description: 'Fill multiple form fields. Returns a snapshot after filling. Optionally click a submit button after filling. Pass includeSnapshot: false to suppress the snapshot when verifying via browser_evaluate instead.',
     inputSchema: z.object({
       fields: z.array(z.object({
         name: z.string().describe('Human-readable field name'),
@@ -33,25 +33,42 @@ const fillForm = defineTabTool({
         ref: z.string().describe('Exact target field reference from the page snapshot'),
         value: z.string().describe('Value to fill in the field. If the field is a checkbox, the value should be `true` or `false`. If the field is a combobox, the value should be the text of the option.'),
       })).describe('Fields to fill in'),
+      submitRef: z.string().optional().describe('Ref of the submit button to click after filling all fields'),
+      submitElement: z.string().optional().describe('Human-readable description of the submit button'),
     }),
     type: 'input',
   },
 
   handle: async (tab, params, response) => {
-    for (const field of params.fields) {
-      const { locator, resolved } = await tab.refLocator({ element: field.name, ref: field.ref });
-      const locatorSource = `await page.${resolved}`;
-      if (field.type === 'textbox' || field.type === 'slider') {
-        const secret = tab.context.lookupSecret(field.value);
-        await locator.fill(secret.value, tab.actionTimeoutOptions);
-        response.addCode(`${locatorSource}.fill(${secret.code});`);
-      } else if (field.type === 'checkbox' || field.type === 'radio') {
-        await locator.setChecked(field.value === 'true', tab.actionTimeoutOptions);
-        response.addCode(`${locatorSource}.setChecked(${field.value});`);
-      } else if (field.type === 'combobox') {
-        await locator.selectOption({ label: field.value }, tab.actionTimeoutOptions);
-        response.addCode(`${locatorSource}.selectOption(${escapeWithQuotes(field.value)});`);
+    // Phase 1: Fill fields (waitForCompletion catches async validation, API calls)
+    await tab.waitForCompletion(async () => {
+      for (const field of params.fields) {
+        const { locator, resolved } = await tab.refLocator({ element: field.name, ref: field.ref });
+        const locatorSource = `await page.${resolved}`;
+        if (field.type === 'textbox' || field.type === 'slider') {
+          const secret = tab.context.lookupSecret(field.value);
+          await locator.fill(secret.value, tab.actionTimeoutOptions);
+          response.addCode(`${locatorSource}.fill(${secret.code});`);
+        } else if (field.type === 'checkbox' || field.type === 'radio') {
+          await locator.setChecked(field.value === 'true', tab.actionTimeoutOptions);
+          response.addCode(`${locatorSource}.setChecked(${field.value});`);
+        } else if (field.type === 'combobox') {
+          await locator.selectOption({ label: field.value }, tab.actionTimeoutOptions);
+          response.addCode(`${locatorSource}.selectOption(${escapeWithQuotes(field.value)});`);
+        }
       }
+    });
+
+    // Phase 2: Submit (optional — separate waitForCompletion for form submission settling)
+    if (params.submitRef) {
+      const { locator, resolved } = await tab.refLocator({
+        element: params.submitElement ?? 'submit button',
+        ref: params.submitRef,
+      });
+      response.addCode(`await page.${resolved}.click();`);
+      await tab.waitForCompletion(async () => {
+        await locator.click(tab.actionTimeoutOptions);
+      });
     }
   },
 });
