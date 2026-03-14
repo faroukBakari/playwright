@@ -33,14 +33,20 @@ const verifyElement = defineTabTool({
   },
 
   handle: async (tab, params, response) => {
-    for (const frame of tab.page.frames()) {
-      const locator = frame.getByRole(params.role as any, { name: params.accessibleName });
-      if (await locator.count() > 0) {
-        const resolved = await locator._resolveForCode();
-        response.addCode(`await expect(page.${resolved}).toBeVisible();`);
-        response.addTextResult('Done');
-        return;
-      }
+    const results = await Promise.all(
+      tab.page.frames().map(async frame => {
+        const locator = frame.getByRole(params.role as any, { name: params.accessibleName });
+        if (await locator.count() > 0)
+          return { locator, frame };
+        return null;
+      })
+    );
+    const match = results.find(r => r !== null);
+    if (match) {
+      const resolved = await match.locator._resolveForCode();
+      response.addCode(`await expect(page.${resolved}).toBeVisible();`);
+      response.addTextResult('Done');
+      return;
     }
     response.addError(`Element with role "${params.role}" and accessible name "${params.accessibleName}" not found`);
   },
@@ -59,14 +65,20 @@ const verifyText = defineTabTool({
   },
 
   handle: async (tab, params, response) => {
-    for (const frame of tab.page.frames()) {
-      const locator = frame.getByText(params.text).filter({ visible: true });
-      if (await locator.count() > 0) {
-        const resolved = await locator._resolveForCode();
-        response.addCode(`await expect(page.${resolved}).toBeVisible();`);
-        response.addTextResult('Done');
-        return;
-      }
+    const results = await Promise.all(
+      tab.page.frames().map(async frame => {
+        const locator = frame.getByText(params.text).filter({ visible: true });
+        if (await locator.count() > 0)
+          return { locator, frame };
+        return null;
+      })
+    );
+    const match = results.find(r => r !== null);
+    if (match) {
+      const resolved = await match.locator._resolveForCode();
+      response.addCode(`await expect(page.${resolved}).toBeVisible();`);
+      response.addTextResult('Done');
+      return;
     }
     response.addError('Text not found');
   },
