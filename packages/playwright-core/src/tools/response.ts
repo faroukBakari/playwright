@@ -156,10 +156,39 @@ export class Response {
         text.push('```');
     }
 
+    let joined = text.join('\n');
+    const maxChars = this._context.config.maxResponseChars;
+    if (maxChars && joined.length > maxChars) {
+      // Find the largest truncatable section (Result or Snapshot) and trim it
+      const truncatable = sections
+          .filter(s => !s.isError && s.title !== 'Page' && s.title !== 'Error' && s.content.length)
+          .sort((a, b) => b.content.join('\n').length - a.content.join('\n').length);
+      if (truncatable.length) {
+        const target = truncatable[0];
+        const excess = joined.length - maxChars;
+        const sectionText = target.content.join('\n');
+        const trimmedLen = Math.max(0, sectionText.length - excess - 100); // 100 for footer
+        target.content.splice(0, target.content.length, sectionText.slice(0, trimmedLen) + `\n... [response truncated to fit ${maxChars} char limit]`);
+        // Rebuild
+        const rebuilt: string[] = [];
+        for (const section of sections) {
+          if (!section.content.length)
+            continue;
+          rebuilt.push(`### ${section.title}`);
+          if (section.codeframe)
+            rebuilt.push(`\`\`\`${section.codeframe}`);
+          rebuilt.push(...section.content);
+          if (section.codeframe)
+            rebuilt.push('```');
+        }
+        joined = rebuilt.join('\n');
+      }
+    }
+
     const content: (TextContent | ImageContent)[] = [
       {
         type: 'text',
-        text: redactText(text.join('\n')),
+        text: redactText(joined),
       }
     ];
 

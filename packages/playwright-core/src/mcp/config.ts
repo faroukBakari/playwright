@@ -333,6 +333,16 @@ export function configFromEnv(): Config & { configFile?: string } {
   if (snapshotInteractableOnly !== undefined)
     config.snapshot = { ...config.snapshot, interactableOnly: snapshotInteractableOnly };
 
+  // Evaluate env var overrides
+  const evalMaxResultLength = numberParser(process.env.PLAYWRIGHT_MCP_EVAL_MAX_RESULT_LENGTH);
+  if (evalMaxResultLength !== undefined)
+    config.evaluate = { ...config.evaluate, maxResultLength: evalMaxResultLength };
+
+  // maxResponseChars env var override
+  const maxResponseChars = numberParser(process.env.PLAYWRIGHT_MCP_MAX_RESPONSE_CHARS);
+  if (maxResponseChars !== undefined)
+    config.maxResponseChars = maxResponseChars;
+
   // Performance env var overrides (not routed through CLIOptions)
   const perfOverrides: NonNullable<Config['performance']> = {};
   const perfPostAction = numberParser(process.env.PLAYWRIGHT_MCP_PERF_POST_ACTION_DELAY);
@@ -413,6 +423,10 @@ export function mergeConfig(base: FullConfig, overrides: Config): FullConfig {
     console: {
       ...pickDefined(base.console),
       ...pickDefined(overrides.console),
+    },
+    evaluate: {
+      ...pickDefined(base.evaluate),
+      ...pickDefined(overrides.evaluate),
     },
     network: {
       ...pickDefined(base.network),

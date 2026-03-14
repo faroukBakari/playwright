@@ -45,7 +45,6 @@ const navigate = defineTool({
     await tab.navigate(url);
 
     response.setIncludeSnapshot();
-    response.addCode(`await page.goto('${url}');`);
   },
 });
 
@@ -60,9 +59,8 @@ const goBack = defineTabTool({
   },
 
   handle: async (tab, params, response) => {
-    await tab.page.goBack(tab.navigationTimeoutOptions);
+    await tab.page.goBack({ waitUntil: 'commit', ...tab.navigationTimeoutOptions });
     response.setIncludeSnapshot();
-    response.addCode(`await page.goBack();`);
   },
 });
 
@@ -78,9 +76,8 @@ const goForward = defineTabTool({
   },
 
   handle: async (tab, params, response) => {
-    await tab.page.goForward(tab.navigationTimeoutOptions);
+    await tab.page.goForward({ waitUntil: 'commit', ...tab.navigationTimeoutOptions });
     response.setIncludeSnapshot();
-    response.addCode(`await page.goForward();`);
   },
 });
 
@@ -96,9 +93,8 @@ const reload = defineTabTool({
   },
 
   handle: async (tab, params, response) => {
-    await tab.page.reload(tab.navigationTimeoutOptions);
+    await tab.page.reload({ waitUntil: 'domcontentloaded', ...tab.navigationTimeoutOptions });
     response.setIncludeSnapshot();
-    response.addCode(`await page.reload();`);
   },
 });
 

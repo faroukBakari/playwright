@@ -29,6 +29,7 @@ const requests = defineTabTool({
     inputSchema: z.object({
       includeStatic: z.boolean().default(false).describe('Whether to include successful static resources like images, fonts, scripts, etc. Defaults to false.'),
       filename: z.string().optional().describe('Filename to save the network requests to. If not provided, requests are returned as text.'),
+      limit: z.number().default(50).describe('Maximum number of requests to return (most recent). Defaults to 50.'),
     }),
     type: 'readOnly',
   },
@@ -41,7 +42,12 @@ const requests = defineTabTool({
         continue;
       text.push(await renderRequest(request));
     }
-    await response.addResult('Network', text.join('\n'), { prefix: 'network', ext: 'log', suggestedFilename: params.filename });
+    const total = text.length;
+    const limited = total > params.limit ? text.slice(-params.limit) : text;
+    let output = limited.join('\n');
+    if (total > params.limit)
+      output = `[showing last ${params.limit} of ${total} total requests]\n` + output;
+    await response.addResult('Network', output, { prefix: 'network', ext: 'log', suggestedFilename: params.filename });
   },
 });
 

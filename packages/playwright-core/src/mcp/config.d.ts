@@ -245,6 +245,19 @@ export type Config = {
    */
   codegen?: 'typescript' | 'none';
 
+  evaluate?: {
+    /** Maximum character count for evaluate result text. Results exceeding
+     * this limit are truncated with a footer. Default: 10000. */
+    maxResultLength?: number;
+  };
+
+  /**
+   * Maximum total character count for any tool response. If exceeded, the
+   * largest section (Result or Snapshot) is truncated to fit. Error and Page
+   * sections are never truncated. Default: 50000.
+   */
+  maxResponseChars?: number;
+
   performance?: {
     /** Post-action request collection window (ms). Default: 100 */
     postActionDelay?: number;

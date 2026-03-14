@@ -15,7 +15,6 @@
  */
 
 import { z } from '../mcpBundle';
-import { escapeWithQuotes } from '../utils/isomorphic/stringUtils';
 
 import { defineTabTool } from './tool';
 
@@ -41,19 +40,16 @@ const evaluate = defineTabTool({
     let locator: Awaited<ReturnType<Tab['refLocator']>> | undefined;
     if (!params.function.includes('=>'))
       params.function = `() => (${params.function})`;
-    if (params.ref) {
+    if (params.ref)
       locator = await tab.refLocator({ ref: params.ref, element: params.element || 'element' });
-      response.addCode(`await page.${locator.resolved}.evaluate(${escapeWithQuotes(params.function)});`);
-    } else {
-      response.addCode(`await page.evaluate(${escapeWithQuotes(params.function)});`);
-    }
 
-    await tab.waitForCompletion(async () => {
-      const receiver = locator?.locator ?? tab.page;
-      const result = await receiver._evaluateFunction(params.function);
-      const text = JSON.stringify(result, null, 2) || 'undefined';
-      response.addTextResult(text);
-    });
+    const receiver = locator?.locator ?? tab.page;
+    const result = await receiver._evaluateFunction(params.function);
+    let text = JSON.stringify(result, null, 2) || 'undefined';
+    const maxLen = tab.context.config.evaluate?.maxResultLength;
+    if (maxLen && text.length > maxLen)
+      text = text.slice(0, maxLen) + `\n... [truncated: ${text.length} chars, limit ${maxLen}]`;
+    response.addTextResult(text);
   },
 });
 
