@@ -31,7 +31,7 @@ import { registry } from '../server/registry/index';
 import { ManualPromise } from '../utils/isomorphic/manualPromise';
 
 import { addressToString } from './sdk/http';
-import { logUnhandledError } from './log';
+import { logUnhandledError, serverLog } from './log';
 import * as protocol from './protocol';
 
 import type websocket from 'ws';
@@ -42,9 +42,17 @@ import type { WebSocket, WebSocketServer } from '../utilsBundle';
 
 const debugLogger = debug('pw:mcp:relay');
 
-type RelayState = 'connected' | 'grace' | 'disconnected';
-const GRACE_TTL_MS = 30_000;
-const GRACE_BUFFER_MAX_BYTES = 2 * 1024 * 1024; // 2 MB
+export type RelayState = 'connected' | 'grace' | 'disconnected';
+
+export interface CDPRelayOptions {
+  graceTTL?: number;               // default: 5_000 (was 30_000)
+  extensionGraceTTL?: number;      // default: 2_000 (Wave 2, wired later)
+  chromeRelaunchDebounce?: number;  // default: 2_000 (Wave 3, wired later)
+  graceBufferMaxBytes?: number;    // default: 2MB
+}
+
+const DEFAULT_GRACE_TTL = 5_000;
+const DEFAULT_GRACE_BUFFER_MAX_BYTES = 2 * 1024 * 1024; // 2 MB
 
 type CDPCommand = {
   id: number;
@@ -86,6 +94,12 @@ export class CDPRelayServer {
   private _graceTimer: ReturnType<typeof setTimeout> | null = null;
   private _graceBuffer: { data: string; size: number }[] = [];
   private _graceBufferBytes = 0;
+  private readonly _graceTTL: number;
+  private readonly _graceBufferMaxBytes: number;
+
+  // Playwright reconnection retry counter
+  private _playwrightReconnectCount = 0;
+  private readonly _maxPlaywrightReconnects = 3;
 
   // Sideband HTTP pending requests (Part B)
   private _registryCallbacks = new Map<string, {
@@ -93,12 +107,14 @@ export class CDPRelayServer {
     timer: ReturnType<typeof setTimeout>;
   }>();
 
-  constructor(server: http.Server, browserChannel: string, userDataDir?: string, executablePath?: string) {
+  constructor(server: http.Server, browserChannel: string, userDataDir?: string, executablePath?: string, options?: CDPRelayOptions) {
     this._wsHost = addressToString(server.address(), { protocol: 'ws' });
     this._browserChannel = browserChannel;
     this._userDataDir = userDataDir;
     this._executablePath = executablePath;
     this._httpServer = server;
+    this._graceTTL = options?.graceTTL ?? DEFAULT_GRACE_TTL;
+    this._graceBufferMaxBytes = options?.graceBufferMaxBytes ?? DEFAULT_GRACE_BUFFER_MAX_BYTES;
 
     const uuid = crypto.randomUUID();
     this._cdpPath = `/cdp/${uuid}`;
@@ -108,6 +124,10 @@ export class CDPRelayServer {
     this._wss = new wsServer({ server });
     this._wss.on('connection', this._onConnection.bind(this));
     this._installSidebandHTTP();
+  }
+
+  get state(): RelayState {
+    return this._state;
   }
 
   cdpEndpoint() {
@@ -209,6 +229,16 @@ export class CDPRelayServer {
   private _handlePlaywrightConnection(ws: WebSocket): void {
     // During grace period: accept reconnection, rewire to existing extension WS
     if (this._state === 'grace') {
+      this._playwrightReconnectCount++;
+      if (this._playwrightReconnectCount > this._maxPlaywrightReconnects) {
+        serverLog('critical', `Playwright reconnect limit exceeded (${this._playwrightReconnectCount}/${this._maxPlaywrightReconnects})`);
+        ws.close(1008, 'Reconnect limit exceeded');
+        this._cancelGrace();
+        this._extensionConnection?.sendRaw({ type: 'registry:serverDown' });
+        this._closeExtensionConnection('Reconnect limit exceeded');
+        this._state = 'disconnected';
+        return;
+      }
       debugLogger('Playwright reconnected during grace period');
       this._playwrightConnection = ws;
       this._cancelGrace();
@@ -223,6 +253,7 @@ export class CDPRelayServer {
       ws.close(1000, 'Another CDP client already connected');
       return;
     }
+    this._playwrightReconnectCount = 0;
     this._playwrightConnection = ws;
     this._state = 'connected';
     this._installPlaywrightHandlers(ws);
@@ -256,18 +287,19 @@ export class CDPRelayServer {
   }
 
   private _enterGrace(): void {
-    debugLogger(`Entering grace period (${GRACE_TTL_MS}ms)`);
+    debugLogger(`Entering grace period (${this._graceTTL}ms)`);
     this._state = 'grace';
     this._graceBuffer = [];
     this._graceBufferBytes = 0;
     this._graceTimer = setTimeout(() => {
+      serverLog('critical', `Playwright grace expired after ${this._graceTTL}ms`);
       debugLogger('Grace period expired');
       this._graceTimer = null;
       this._state = 'disconnected';
       // Notify extension that server is gone
       this._extensionConnection?.sendRaw({ type: 'registry:serverDown' });
       this._closeExtensionConnection('Grace period expired');
-    }, GRACE_TTL_MS);
+    }, this._graceTTL);
   }
 
   private _cancelGrace(): void {
@@ -287,7 +319,7 @@ export class CDPRelayServer {
 
   private _bufferEvent(data: string): void {
     const size = data.length * 2; // rough byte estimate (UTF-16)
-    while (this._graceBufferBytes + size > GRACE_BUFFER_MAX_BYTES && this._graceBuffer.length > 0) {
+    while (this._graceBufferBytes + size > this._graceBufferMaxBytes && this._graceBuffer.length > 0) {
       const evicted = this._graceBuffer.shift()!;
       this._graceBufferBytes -= evicted.size;
     }
