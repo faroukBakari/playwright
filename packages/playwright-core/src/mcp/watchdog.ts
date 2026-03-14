@@ -15,7 +15,7 @@
  */
 
 import { gracefullyCloseAll, gracefullyCloseSet } from '../utils';
-import { testDebug } from './log';
+import { serverLog, testDebug } from './log';
 
 export function setupExitWatchdog() {
   let isExiting = false;
@@ -23,15 +23,37 @@ export function setupExitWatchdog() {
     if (isExiting)
       return;
     isExiting = true;
+    serverLog('signal', `received ${signal} — shutting down (${gracefullyCloseSet.size} resources to close)`);
     // eslint-disable-next-line no-restricted-properties
-    setTimeout(() => process.exit(0), 15000);
+    setTimeout(() => {
+      serverLog('signal', 'graceful shutdown timed out after 15s — forcing exit');
+      process.exit(0);
+    }, 15000);
     testDebug('gracefully closing ' + gracefullyCloseSet.size);
     await gracefullyCloseAll();
+    serverLog('lifecycle', 'graceful shutdown complete');
     // eslint-disable-next-line no-restricted-properties
     process.exit(0);
   };
 
-  process.stdin.on('close', () => handleExit('close'));
+  process.stdin.on('close', () => handleExit('stdin-close'));
   process.on('SIGINT', () => handleExit('SIGINT'));
   process.on('SIGTERM', () => handleExit('SIGTERM'));
+  process.on('SIGHUP', () => handleExit('SIGHUP'));
+
+  process.on('uncaughtException', (error) => {
+    serverLog('error', `uncaught exception: ${error.stack || error.message || error}`);
+    // eslint-disable-next-line no-restricted-properties
+    process.exit(1);
+  });
+
+  process.on('unhandledRejection', (reason) => {
+    serverLog('error', `unhandled rejection: ${reason instanceof Error ? (reason.stack || reason.message) : String(reason)}`);
+    // eslint-disable-next-line no-restricted-properties
+    process.exit(1);
+  });
+
+  process.on('exit', (code) => {
+    serverLog('lifecycle', `process exiting with code ${code}`);
+  });
 }

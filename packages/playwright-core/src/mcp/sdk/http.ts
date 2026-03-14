@@ -24,6 +24,7 @@ import * as mcpBundle from '../../mcpBundle';
 import { createHttpServer, startHttpServer } from '../../server/utils/network';
 
 import * as mcpServer from './server';
+import { serverLog } from '../log';
 
 import type { ServerBackendFactory } from './server';
 import type { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
@@ -110,10 +111,16 @@ async function installHttpTransport(httpServer: http.Server, serverBackendFactor
   let lastActivity = Date.now();
   const idleTimeoutMs = parseInt(process.env.PLAYWRIGHT_MCP_IDLE_TTL || '1800', 10) * 1000;
   if (idleTimeoutMs > 0) {
+    serverLog('lifecycle', `idle TTL enabled: ${idleTimeoutMs / 1000}s`);
     setInterval(() => {
-      if (Date.now() - lastActivity > idleTimeoutMs)
+      const idleMs = Date.now() - lastActivity;
+      if (idleMs > idleTimeoutMs) {
+        serverLog('idle', `no activity for ${Math.round(idleMs / 1000)}s (limit: ${idleTimeoutMs / 1000}s) — exiting`);
         process.exit(0);
+      }
     }, 60_000).unref();
+  } else {
+    serverLog('lifecycle', 'idle TTL disabled');
   }
 
   httpServer.on('request', async (req, res) => {
@@ -170,10 +177,12 @@ async function handleSSE(serverBackendFactory: ServerBackendFactory, req: http.I
     const transport = new mcpBundle.SSEServerTransport('/sse', res);
     sessions.set(transport.sessionId, transport);
     testDebug(`create SSE session`);
+    serverLog('session', `SSE session created: ${transport.sessionId} (active: ${sessions.size})`);
     await mcpServer.connect(serverBackendFactory, transport, false, transport.sessionId);
     res.on('close', () => {
       testDebug(`delete SSE session`);
       sessions.delete(transport.sessionId);
+      serverLog('session', `SSE session closed: ${transport.sessionId} (active: ${sessions.size})`);
     });
     return;
   }
@@ -200,6 +209,7 @@ async function handleStreamable(serverBackendFactory: ServerBackendFactory, req:
       eventStore: new InMemoryEventStore(),
       onsessioninitialized: async sessionId => {
         testDebug(`create http session`);
+        serverLog('session', `HTTP session created: ${sessionId} (active: ${sessions.size + 1})`);
         await mcpServer.connect(serverBackendFactory, transport, true, sessionId);
         sessions.set(sessionId, transport);
       }
@@ -210,6 +220,7 @@ async function handleStreamable(serverBackendFactory: ServerBackendFactory, req:
         return;
       sessions.delete(transport.sessionId);
       testDebug(`delete http session`);
+      serverLog('session', `HTTP session closed: ${transport.sessionId} (active: ${sessions.size})`);
     };
 
     await transport.handleRequest(req, res);

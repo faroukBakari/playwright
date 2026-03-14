@@ -23,7 +23,7 @@ import { setupExitWatchdog } from './watchdog';
 import { createBrowser } from './browserFactory';
 import { BrowserServerBackend } from '../tools/browserServerBackend';
 import { filteredTools } from '../tools/tools';
-import { testDebug } from './log';
+import { serverLog, testDebug } from './log';
 
 import type { Command } from '../utilsBundle';
 import type { ClientInfo } from './sdk/server';
@@ -78,6 +78,7 @@ export function decorateMCPCommand(command: Command, version: string) {
         // normalize the --no-sandbox option: sandbox = true => nothing was passed, sandbox = false => --no-sandbox was passed.
         options.sandbox = options.sandbox === true ? undefined : false;
 
+        serverLog('lifecycle', `server starting (PID: ${process.pid})`);
         setupExitWatchdog();
 
         if (options.vision) {
@@ -90,8 +91,15 @@ export function decorateMCPCommand(command: Command, version: string) {
           options.caps.push('devtools');
 
         const config = await resolveCLIConfig(options);
+        serverLog('lifecycle', `config loaded`, {
+          port: config.server?.port,
+          host: config.server?.host || 'localhost',
+          extension: !!config.extension,
+          configFile: config.configFile || '(none)',
+        });
         const serviceDir = config.configFile ? path.dirname(config.configFile) : undefined;
         const tools = filteredTools(config);
+        serverLog('lifecycle', `${tools.length} tools registered`);
         if (config.extension) {
           // Shared browser for extension mode: create once, reuse across all
           // HTTP clients. Without this, each client spawns a new Chrome +

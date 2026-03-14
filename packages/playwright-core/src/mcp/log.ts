@@ -23,3 +23,19 @@ export function logUnhandledError(error: unknown) {
 }
 
 export const testDebug = debug('pw:mcp:test');
+
+/**
+ * Always-on server lifecycle logger. Writes timestamped lines to stderr
+ * (which server.sh redirects to .local/server.log). Not gated behind
+ * DEBUG env var — these are the production breadcrumbs for troubleshooting
+ * server crashes, idle exits, and session lifecycle.
+ */
+export function serverLog(category: string, message: string, ...args: unknown[]) {
+  const now = new Date();
+  const ts = now.toLocaleString('sv-SE', { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }).replace(' ', 'T')
+    + '.' + String(now.getMilliseconds()).padStart(3, '0');
+  const extra = args.length > 0
+    ? ' ' + args.map(a => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ')
+    : '';
+  process.stderr.write(`[${ts}] [${category}] ${message}${extra}\n`);
+}
