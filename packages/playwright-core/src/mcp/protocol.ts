@@ -20,7 +20,7 @@ export const VERSION = 1;
 
 export type ExtensionCommand = {
   'attachToTab': {
-    params: {};
+    params: { tabId?: number };
   };
   'forwardCDPCommand': {
     params: {

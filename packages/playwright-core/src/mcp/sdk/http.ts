@@ -15,6 +15,8 @@
  */
 
 import assert from 'assert';
+import fs from 'fs';
+import path from 'path';
 import net from 'net';
 import http from 'http';
 import crypto from 'crypto';
@@ -75,6 +77,41 @@ class InMemoryEventStore {
   }
 }
 
+// Session state persistence: survives server restarts so returning clients
+// with a stale Mcp-Session-Id can be transparently recovered instead of 404'd.
+export function sessionStateFile(): string {
+  return path.join(process.cwd(), '.local', 'session-state.json');
+}
+
+function writeSessionState(sessionId: string): void {
+  try {
+    fs.writeFileSync(sessionStateFile(), JSON.stringify({
+      sessionId,
+      createdAt: new Date().toISOString(),
+      pid: process.pid,
+    }));
+  } catch {
+    // Non-critical — recovery just won't work after next restart.
+  }
+}
+
+function readSessionState(): string | null {
+  try {
+    const data = JSON.parse(fs.readFileSync(sessionStateFile(), 'utf-8'));
+    return data?.sessionId ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function deleteSessionState(): void {
+  try {
+    fs.unlinkSync(sessionStateFile());
+  } catch {
+    // Already gone or never existed.
+  }
+}
+
 export async function startMcpHttpServer(
   config: { host?: string, port?: number },
   serverBackendFactory: ServerBackendFactory,
@@ -98,7 +135,7 @@ export function addressToString(address: string | net.AddressInfo | null, option
   return `${options.protocol}://${host}:${address.port}`;
 }
 
-async function installHttpTransport(httpServer: http.Server, serverBackendFactory: ServerBackendFactory, allowedHosts?: string[]) {
+export async function installHttpTransport(httpServer: http.Server, serverBackendFactory: ServerBackendFactory, allowedHosts?: string[]) {
   const url = addressToString(httpServer.address(), { protocol: 'http', normalizeLoopback: true });
   const host = new URL(url).host;
   allowedHosts = (allowedHosts || [host]).map(h => h.toLowerCase());
@@ -106,6 +143,11 @@ async function installHttpTransport(httpServer: http.Server, serverBackendFactor
 
   const sseSessions = new Map();
   const streamableSessions = new Map();
+
+  // Load persisted session ID from previous server instance (if any).
+  let persistedSessionId = readSessionState();
+  if (persistedSessionId)
+    serverLog('session', `Loaded persisted session ID: ${persistedSessionId}`);
 
   // Idle TTL: auto-exit after inactivity. Default 30min. Set to 0 to disable.
   let lastActivity = Date.now();
@@ -152,7 +194,7 @@ async function installHttpTransport(httpServer: http.Server, serverBackendFactor
     if (url.pathname.startsWith('/sse'))
       await handleSSE(serverBackendFactory, req, res, url, sseSessions);
     else
-      await handleStreamable(serverBackendFactory, req, res, streamableSessions);
+      await handleStreamable(serverBackendFactory, req, res, streamableSessions, persistedSessionId, id => { persistedSessionId = id; });
   });
 
   return url;
@@ -191,16 +233,34 @@ async function handleSSE(serverBackendFactory: ServerBackendFactory, req: http.I
   res.end('Method not allowed');
 }
 
-async function handleStreamable(serverBackendFactory: ServerBackendFactory, req: http.IncomingMessage, res: http.ServerResponse, sessions: Map<string, StreamableHTTPServerTransport>) {
+async function handleStreamable(
+  serverBackendFactory: ServerBackendFactory,
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  sessions: Map<string, StreamableHTTPServerTransport>,
+  persistedSessionId: string | null,
+  setPersistedSessionId: (id: string | null) => void,
+) {
   const sessionId = req.headers['mcp-session-id'] as string | undefined;
   if (sessionId) {
     const transport = sessions.get(sessionId);
-    if (!transport) {
-      res.statusCode = 404;
-      res.end('Session not found');
-      return;
+    if (transport)
+      return await transport.handleRequest(req, res);
+
+    // Stale session recovery: client has a session ID from a previous server
+    // instance. If it matches the persisted ID, transparently re-initialize
+    // the transport so the client experiences zero disruption.
+    if (persistedSessionId && sessionId === persistedSessionId) {
+      serverLog('session', `Recovering stale session ${sessionId}`);
+      const recovered = await recoverSession(serverBackendFactory, sessionId, sessions, setPersistedSessionId);
+      if (recovered)
+        return await recovered.handleRequest(req, res);
+      // Recovery failed — fall through to 404.
     }
-    return await transport.handleRequest(req, res);
+
+    res.statusCode = 404;
+    res.end('Session not found');
+    return;
   }
 
   if (req.method === 'POST') {
@@ -212,6 +272,9 @@ async function handleStreamable(serverBackendFactory: ServerBackendFactory, req:
         serverLog('session', `HTTP session created: ${sessionId} (active: ${sessions.size + 1})`);
         await mcpServer.connect(serverBackendFactory, transport, true, sessionId);
         sessions.set(sessionId, transport);
+        // Persist for recovery after server restart.
+        writeSessionState(sessionId);
+        setPersistedSessionId(sessionId);
       }
     });
 
@@ -219,6 +282,8 @@ async function handleStreamable(serverBackendFactory: ServerBackendFactory, req:
       if (!transport.sessionId)
         return;
       sessions.delete(transport.sessionId);
+      deleteSessionState();
+      setPersistedSessionId(null);
       testDebug(`delete http session`);
       serverLog('session', `HTTP session closed: ${transport.sessionId} (active: ${sessions.size})`);
     };
@@ -229,4 +294,50 @@ async function handleStreamable(serverBackendFactory: ServerBackendFactory, req:
 
   res.statusCode = 400;
   res.end('Invalid request');
+}
+
+/**
+ * Re-creates a StreamableHTTPServerTransport for a persisted session ID,
+ * bypasses the SDK's initialize handshake via direct field assignment
+ * (TypeScript `private` — plain JS properties at runtime), and connects
+ * the MCP server backend so tool calls work immediately.
+ */
+async function recoverSession(
+  serverBackendFactory: ServerBackendFactory,
+  sessionId: string,
+  sessions: Map<string, StreamableHTTPServerTransport>,
+  setPersistedSessionId: (id: string | null) => void,
+): Promise<StreamableHTTPServerTransport | null> {
+  try {
+    const transport = new mcpBundle.StreamableHTTPServerTransport({
+      sessionIdGenerator: () => sessionId,
+      eventStore: new InMemoryEventStore(),
+    });
+
+    // Bypass SDK initialize handshake: set the internal state directly.
+    // These are TypeScript `private` but plain JS properties (not #private).
+    const inner = (transport as any)._webStandardTransport;
+    inner._initialized = true;
+    inner.sessionId = sessionId;
+
+    transport.onclose = () => {
+      sessions.delete(sessionId);
+      deleteSessionState();
+      setPersistedSessionId(null);
+      testDebug(`delete http session`);
+      serverLog('session', `Recovered session closed: ${sessionId} (active: ${sessions.size})`);
+    };
+
+    // Connect MCP server — backend is created lazily on first tool call.
+    await mcpServer.connect(serverBackendFactory, transport, true, sessionId);
+    sessions.set(sessionId, transport);
+
+    // Re-persist (same ID, new PID).
+    writeSessionState(sessionId);
+    serverLog('session', `Session recovered: ${sessionId} (active: ${sessions.size})`);
+    return transport;
+  } catch (e) {
+    serverLog('session', `Session recovery failed: ${e}`);
+    return null;
+  }
 }
