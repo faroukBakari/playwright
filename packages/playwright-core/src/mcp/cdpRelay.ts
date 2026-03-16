@@ -403,6 +403,9 @@ export class CDPRelayServer {
     this._extensionConnection = new ExtensionConnection(ws);
     this._extensionConnection.onmessage = this._handleExtensionMessage.bind(this);
     this._extensionConnection.onregistryresponse = this._handleRegistryResponse.bind(this);
+    this._extensionConnection.onlogmessage = (msg) => {
+      serverLog(`ext:${msg.channel || 'unknown'}`, msg.message || '');
+    };
     this._extensionConnectionPromise.resolve();
 
     // Rewire the onclose handler for the new connection
@@ -514,6 +517,9 @@ export class CDPRelayServer {
     };
     this._extensionConnection.onmessage = this._handleExtensionMessage.bind(this);
     this._extensionConnection.onregistryresponse = this._handleRegistryResponse.bind(this);
+    this._extensionConnection.onlogmessage = (msg) => {
+      serverLog(`ext:${msg.channel || 'unknown'}`, msg.message || '');
+    };
     this._extensionConnectionPromise.resolve();
   }
 
@@ -715,6 +721,7 @@ class ExtensionConnection {
   onmessage?: <M extends keyof ExtensionEvents>(method: M, params: ExtensionEvents[M]['params']) => void;
   onclose?: (self: ExtensionConnection, reason: string) => void;
   onregistryresponse?: (parsed: any) => void;
+  onlogmessage?: (parsed: any) => void;
 
   constructor(ws: WebSocket) {
     this._ws = ws;
@@ -767,6 +774,11 @@ class ExtensionConnection {
     // Route registry responses (type-based) to the relay's HTTP handler
     if (typeof object.type === 'string' && object.type.startsWith('registry:')) {
       this.onregistryresponse?.(object);
+      return;
+    }
+    // Route extension log messages to serverLog
+    if (typeof object.type === 'string' && object.type.startsWith('log:')) {
+      this.onlogmessage?.(object);
       return;
     }
     if (object.id && this._callbacks.has(object.id)) {
