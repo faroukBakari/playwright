@@ -141,6 +141,26 @@ export class CDPRelayServer {
     return this._lastTabUrl;
   }
 
+  /**
+   * Reset connection-specific state while preserving infrastructure
+   * (WS server, HTTP server, paths, tab memory). Called before reconnecting
+   * to a new browser after the previous one died.
+   */
+  prepareForReconnect(): void {
+    this._closePlaywrightConnection('preparing for reconnect');
+    this._closeExtensionConnection('preparing for reconnect');
+    this._cancelGrace();
+    this._cancelExtensionGrace();
+    this._connectedTabInfo = undefined;
+    this._nextSessionId = 1;
+    this._playwrightReconnectCount = 0;
+    this._graceBuffer = [];
+    this._graceBufferBytes = 0;
+    this._state = 'disconnected';
+    // Preserve: _lastTabId, _lastTabUrl (tab continuity across deaths)
+    // Preserve: _wss, _httpServer, _cdpPath, _extensionPath (infrastructure)
+  }
+
   cdpEndpoint() {
     return `${this._wsHost}${this._cdpPath}`;
   }

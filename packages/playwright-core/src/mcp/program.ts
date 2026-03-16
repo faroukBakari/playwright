@@ -21,6 +21,7 @@ import * as mcpServer from './sdk/server';
 import { commaSeparatedList, dotenvFileLoader, enumParser, headerParser, numberParser, resolutionParser, resolveCLIConfig, semicolonSeparatedList } from './config';
 import { setupExitWatchdog } from './watchdog';
 import { createBrowser } from './browserFactory';
+import { createExtensionRelay } from './extensionContextFactory';
 import { BrowserServerBackend } from '../tools/browserServerBackend';
 import { filteredTools } from '../tools/tools';
 import { serverLog, testDebug } from './log';
@@ -108,11 +109,16 @@ export function decorateMCPCommand(command: Command, version: string) {
           // Promise latch ensures only one createBrowser runs; all concurrent
           // callers await the same promise. On failure, the latch resets to
           // allow retry on the next request.
+          //
+          // Wave 3b: Relay is created ONCE here and reused across browser deaths.
+          // createBrowser() calls relay.prepareForReconnect() internally, which
+          // resets connection state without replacing the relay or HTTP server.
+          const relay = await createExtensionRelay(config);
           let browserPromise: ReturnType<typeof createBrowser> | null = null;
           const getOrCreateBrowser = () => {
             if (!browserPromise) {
               serverLog('lifecycle', 'extension mode: creating shared browser (first client request)');
-              browserPromise = createBrowser(config, { cwd: process.cwd() }).then(browser => {
+              browserPromise = createBrowser(config, { cwd: process.cwd() }, relay).then(browser => {
                 browser.on('disconnected', () => {
                   serverLog('lifecycle', 'extension mode: browser disconnected — will re-create on next request');
                   browserPromise = null;
@@ -125,7 +131,7 @@ export function decorateMCPCommand(command: Command, version: string) {
             }
             return browserPromise;
           };
-          serverLog('lifecycle', 'extension mode: browser creation deferred to first client request');
+          serverLog('lifecycle', 'extension mode: relay created, browser deferred to first client request');
 
           const serverBackendFactory: mcpServer.ServerBackendFactory = {
             name: 'Playwright w/ extension',

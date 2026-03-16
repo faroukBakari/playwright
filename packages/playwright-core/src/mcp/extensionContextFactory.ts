@@ -32,7 +32,11 @@ const debugLogger = debug('pw:mcp:relay');
  */
 export let relayHttpUrl: string | undefined;
 
-export async function createExtensionBrowser(config: FullConfig, clientInfo: ClientInfo): Promise<playwright.Browser> {
+/**
+ * Create the CDPRelayServer and its backing HTTP server. Called once
+ * at startup — the relay survives browser deaths and is reused.
+ */
+export async function createExtensionRelay(config: FullConfig): Promise<CDPRelayServer> {
   const httpServer = createHttpServer();
   await startHttpServer(httpServer, {});
   const relay = new CDPRelayServer(
@@ -45,6 +49,15 @@ export async function createExtensionBrowser(config: FullConfig, clientInfo: Cli
   relayHttpUrl = `${cdpUrl.protocol}//${cdpUrl.host}`;
   debugLogger(`Relay HTTP URL for sideband: ${relayHttpUrl}`);
 
+  return relay;
+}
+
+/**
+ * Connect to a browser via an existing CDPRelay. Resets relay state,
+ * waits for extension connection, then connects Playwright over CDP.
+ */
+export async function createExtensionBrowser(config: FullConfig, clientInfo: ClientInfo, relay: CDPRelayServer): Promise<playwright.Browser> {
+  relay.prepareForReconnect();
   await relay.ensureExtensionConnectionForMCPContext(clientInfo, /* forceNewTab */ false);
   return await playwright.chromium.connectOverCDP(relay.cdpEndpoint(), { isLocal: true });
 }
