@@ -23,11 +23,10 @@
  */
 
 import { spawn } from 'child_process';
+import fs from 'fs';
 import http from 'http';
-import os from 'os';
 
 import { debug, ws, wsServer } from '../utilsBundle';
-import { registry } from '../server/registry/index';
 import { ManualPromise } from '../utils/isomorphic/manualPromise';
 
 import { addressToString } from './sdk/http';
@@ -74,8 +73,6 @@ type CDPResponse = {
 export class CDPRelayServer {
   private _wsHost: string;
   private _browserChannel: string;
-  private _userDataDir?: string;
-  private _executablePath?: string;
   private _cdpPath: string;
   private _extensionPath: string;
   private _httpServer: http.Server;
@@ -114,11 +111,9 @@ export class CDPRelayServer {
     timer: ReturnType<typeof setTimeout>;
   }>();
 
-  constructor(server: http.Server, browserChannel: string, userDataDir?: string, executablePath?: string, options?: CDPRelayOptions) {
+  constructor(server: http.Server, browserChannel: string, options?: CDPRelayOptions) {
     this._wsHost = addressToString(server.address(), { protocol: 'ws' });
     this._browserChannel = browserChannel;
-    this._userDataDir = userDataDir;
-    this._executablePath = executablePath;
     this._httpServer = server;
     this._graceTTL = options?.graceTTL ?? DEFAULT_GRACE_TTL;
     this._extensionGraceTTL = options?.extensionGraceTTL ?? DEFAULT_EXTENSION_GRACE_TTL;
@@ -194,28 +189,49 @@ export class CDPRelayServer {
       url.searchParams.set('token', token);
     const href = url.toString();
 
-    let executablePath = this._executablePath;
-    if (!executablePath) {
-      const executableInfo = registry.findExecutable(this._browserChannel);
-      if (!executableInfo)
-        throw new Error(`Unsupported channel: "${this._browserChannel}"`);
-      executablePath = executableInfo.executablePath();
-      if (!executablePath)
-        throw new Error(`"${this._browserChannel}" executable not found. Make sure it is installed at a standard location.`);
-    }
+    serverLog('lifecycle', `extension mode: opening connect URL in browser`);
+    this._openUrlInChrome(href);
+  }
 
-    const args: string[] = [];
-    if (this._userDataDir)
-      args.push(`--user-data-dir=${this._userDataDir}`);
-    if (os.platform() === 'linux' && this._browserChannel === 'chromium')
-      args.push('--no-sandbox');
-    args.push(href);
-    spawn(executablePath, args, {
-      windowsHide: true,
-      detached: true,
-      shell: false,
-      stdio: 'ignore',
-    });
+  private _openUrlInChrome(url: string) {
+    const isWSL = (() => {
+      try {
+        return fs.readFileSync('/proc/version', 'utf8').toLowerCase().includes('microsoft');
+      } catch {
+        return false;
+      }
+    })();
+
+    if (isWSL) {
+      // WSL: PowerShell finds Chrome via Windows app registry — no exe path needed
+      spawn('powershell.exe', ['-NoProfile', '-Command', `Start-Process 'chrome' -ArgumentList '${url}'`], {
+        windowsHide: true,
+        detached: true,
+        shell: false,
+        stdio: 'ignore',
+      }).unref();
+    } else if (process.platform === 'darwin') {
+      // macOS: Launch Services finds Chrome
+      spawn('open', ['-a', 'Google Chrome', url], {
+        detached: true,
+        stdio: 'ignore',
+      }).unref();
+    } else {
+      // Native Linux: direct chrome invocation (xdg-open can't handle chrome-extension:// scheme)
+      const candidates = ['google-chrome', 'google-chrome-stable', 'chromium-browser', 'chromium'];
+      let launched = false;
+      for (const bin of candidates) {
+        try {
+          spawn(bin, [url], { detached: true, stdio: 'ignore' }).unref();
+          launched = true;
+          break;
+        } catch {
+          // try next candidate
+        }
+      }
+      if (!launched)
+        throw new Error('Chrome/Chromium not found. Install Chrome or set a browser channel.');
+    }
   }
 
   stop(): void {

@@ -37,9 +37,7 @@ export async function createExtensionBrowser(config: FullConfig, clientInfo: Cli
   await startHttpServer(httpServer, {});
   const relay = new CDPRelayServer(
       httpServer,
-      config.browser.launchOptions.channel || 'chrome',
-      config.browser.userDataDir,
-      config.browser.launchOptions.executablePath);
+      config.browser.launchOptions.channel || 'chrome');
   debugLogger(`CDP relay server started, extension endpoint: ${relay.extensionEndpoint()}.`);
 
   // Derive HTTP base URL from the relay's WS endpoint (ws://host:port/cdp/uuid → http://host:port)

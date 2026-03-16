@@ -131,6 +131,12 @@ export function createServer(name: string, version: string, factory: ServerBacke
         await backendManager.disposeBackend(backend).catch(serverDebug);
         backendPromise = undefined;
         delete toolResult.isClose;
+      } else if (toolResult.isError) {
+        const errorText = toolResult.content?.find(c => c.type === 'text')?.text ?? '';
+        if (errorText.includes('has been closed') || errorText.includes('browser has been disconnected')) {
+          await backendManager.disposeBackend(backend).catch(serverDebug);
+          backendPromise = undefined;
+        }
       }
 
       const mergedResult = mergeTextParts(toolResult);

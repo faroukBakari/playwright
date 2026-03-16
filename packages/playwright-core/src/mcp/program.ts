@@ -101,17 +101,40 @@ export function decorateMCPCommand(command: Command, version: string) {
         const tools = filteredTools(config);
         serverLog('lifecycle', `${tools.length} tools registered`);
         if (config.extension) {
-          // Shared browser for extension mode: create once, reuse across all
-          // HTTP clients. Without this, each client spawns a new Chrome +
-          // CDPRelayServer, breaking tab persistence and orphaning relays.
-          const sharedExtBrowser = await createBrowser(config, { cwd: process.cwd() });
+          // Shared browser for extension mode: deferred to first client request.
+          // Without sharing, each client spawns a new Chrome + CDPRelayServer,
+          // breaking tab persistence and orphaning relays. Without deferral,
+          // the server crashes at startup if Chrome isn't immediately reachable.
+          // Promise latch ensures only one createBrowser runs; all concurrent
+          // callers await the same promise. On failure, the latch resets to
+          // allow retry on the next request.
+          let browserPromise: ReturnType<typeof createBrowser> | null = null;
+          const getOrCreateBrowser = () => {
+            if (!browserPromise) {
+              serverLog('lifecycle', 'extension mode: creating shared browser (first client request)');
+              browserPromise = createBrowser(config, { cwd: process.cwd() }).then(browser => {
+                browser.on('disconnected', () => {
+                  serverLog('lifecycle', 'extension mode: browser disconnected — will re-create on next request');
+                  browserPromise = null;
+                });
+                return browser;
+              }).catch(e => {
+                browserPromise = null;
+                throw e;
+              });
+            }
+            return browserPromise;
+          };
+          serverLog('lifecycle', 'extension mode: browser creation deferred to first client request');
+
           const serverBackendFactory: mcpServer.ServerBackendFactory = {
             name: 'Playwright w/ extension',
             nameInConfig: 'playwright-extension',
             version,
             toolSchemas: tools.map(tool => tool.schema),
             create: async (_clientInfo: ClientInfo) => {
-              const browserContext = sharedExtBrowser.contexts()[0];
+              const browser = await getOrCreateBrowser();
+              const browserContext = browser.contexts()[0];
               return new BrowserServerBackend(config, browserContext, tools, serviceDir);
             },
             disposed: async () => { }

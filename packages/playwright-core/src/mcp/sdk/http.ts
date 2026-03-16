@@ -104,14 +104,6 @@ function readSessionState(): string | null {
   }
 }
 
-function deleteSessionState(): void {
-  try {
-    fs.unlinkSync(sessionStateFile());
-  } catch {
-    // Already gone or never existed.
-  }
-}
-
 export async function startMcpHttpServer(
   config: { host?: string, port?: number },
   serverBackendFactory: ServerBackendFactory,
@@ -184,6 +176,14 @@ export async function installHttpTransport(httpServer: http.Server, serverBacken
     }
 
     const url = new URL(`http://localhost${req.url}`);
+    // Health endpoint: lightweight probe that does NOT create MCP sessions.
+    // Used by server.sh health checks, load balancers, and monitoring.
+    if (url.pathname === '/health' && req.method === 'GET') {
+      res.statusCode = 200;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ status: 'ok', sessions: streamableSessions.size + sseSessions.size }));
+      return;
+    }
     if (url.pathname === '/killkillkill' && req.method === 'GET') {
       res.statusCode = 200;
       res.end('Killing process');
@@ -282,8 +282,9 @@ async function handleStreamable(
       if (!transport.sessionId)
         return;
       sessions.delete(transport.sessionId);
-      deleteSessionState();
-      setPersistedSessionId(null);
+      // Don't delete session state — it must survive server restarts for
+      // stale session recovery. The file is overwritten when a new session
+      // is created (writeSessionState in onsessioninitialized).
       testDebug(`delete http session`);
       serverLog('session', `HTTP session closed: ${transport.sessionId} (active: ${sessions.size})`);
     };
@@ -322,8 +323,6 @@ async function recoverSession(
 
     transport.onclose = () => {
       sessions.delete(sessionId);
-      deleteSessionState();
-      setPersistedSessionId(null);
       testDebug(`delete http session`);
       serverLog('session', `Recovered session closed: ${sessionId} (active: ${sessions.size})`);
     };
