@@ -393,7 +393,7 @@ export class Tab extends EventEmitter<TabEventsInterface> {
         target_ms: 8000,
         interactableOnly: !!interactableOnly,
         rootSelector: rootSelector || undefined,
-      }, () => this.page._snapshotForAI({ track: 'response', interactableOnly, rootSelector }), (result) => ({
+      }, () => this.page._snapshotForAI({ track: `response-${this.context.id}`, interactableOnly, rootSelector }), (result) => ({
         full_chars: result?.full.length ?? 0,
         diff_chars: result?.incremental?.length,
       }));

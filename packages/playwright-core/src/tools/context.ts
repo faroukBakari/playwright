@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 
@@ -118,6 +119,7 @@ export type FilenameTemplate = {
 type VideoParams = NonNullable<Parameters<playwright.Video['start']>[0]>;
 
 export class Context {
+  readonly id: string = crypto.randomUUID();
   readonly config: ContextConfig;
   readonly sessionLog: SessionLog | undefined;
   readonly perfLog: PerfLog;

@@ -244,7 +244,7 @@ export class Response {
 
     // Handle tab snapshot
     if (tabSnapshot && this._includeSnapshot !== 'none') {
-      let snapshot = this._includeSnapshot === 'full' ? tabSnapshot.ariaSnapshot : tabSnapshot.ariaSnapshotDiff ?? tabSnapshot.ariaSnapshot;
+      let snapshot = this._includeSnapshot === 'full' ? tabSnapshot.ariaSnapshot : tabSnapshot.ariaSnapshotDiff || tabSnapshot.ariaSnapshot;
       const maxChars = this._context.config.snapshot?.maxChars;
       if (maxChars && snapshot.length > maxChars)
         snapshot = snapshot.slice(0, maxChars) + `\n... [truncated: ${snapshot.length} chars, limit ${maxChars}]`;
