@@ -48,9 +48,10 @@ export function setupExitWatchdog() {
   });
 
   process.on('unhandledRejection', (reason) => {
-    serverLog('error', `unhandled rejection: ${reason instanceof Error ? (reason.stack || reason.message) : String(reason)}`);
-    // eslint-disable-next-line no-restricted-properties
-    process.exit(1);
+    // Log but do not exit. Orphaned promises from timed-out tool dispatch
+    // and browser_run_code detached promises are expected runtime events —
+    // crashing the server kills all sessions for a single-promise failure.
+    serverLog('rejection', `unhandled rejection (non-fatal): ${reason instanceof Error ? (reason.stack || reason.message) : String(reason)}`);
   });
 
   process.on('exit', (code) => {

@@ -28,10 +28,18 @@ export type ToolSchema<Input extends z.Schema> = {
 
 export function toMcpTool(tool: ToolSchema<any>): mcpServer.Tool {
   const readOnly = tool.type === 'readOnly' || tool.type === 'assertion';
+  const schema = zod.toJSONSchema(tool.inputSchema) as mcpServer.Tool['inputSchema'] & { properties?: Record<string, any> };
+  // Inject universal timeout parameter — extracted at dispatch layer before schema parse
+  if (schema.properties) {
+    schema.properties.timeout = {
+      type: 'number',
+      description: 'Timeout in seconds. Default varies by tool type (5s read/input/action/assertion, 15s navigate, 30s run_code). Override when the operation needs more time.',
+    };
+  }
   return {
     name: tool.name,
     description: tool.description,
-    inputSchema: zod.toJSONSchema(tool.inputSchema) as mcpServer.Tool['inputSchema'],
+    inputSchema: schema,
     annotations: {
       title: tool.title,
       readOnlyHint: readOnly,

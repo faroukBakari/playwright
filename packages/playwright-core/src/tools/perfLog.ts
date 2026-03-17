@@ -40,8 +40,12 @@ export class PerfLog {
   private _sessionId?: string;
   private _toolName?: string;
   private _callId?: string;
+  private _retentionDays: number;
+  private _cleaned = false;
 
-  constructor(private _logDir: string) {}
+  constructor(private _logDir: string, retentionDays?: number) {
+    this._retentionDays = retentionDays ?? 10;
+  }
 
   setSession(sessionId: string) { this._sessionId = sessionId; }
   setTool(toolName: string) { this._toolName = toolName; }
@@ -91,6 +95,27 @@ export class PerfLog {
     const date = new Date().toISOString().slice(0, 10);
     const filePath = path.join(this._logDir, `perf-${date}.jsonl`);
     this._stream = fs.createWriteStream(filePath, { flags: 'a' });
+    if (!this._cleaned) {
+      this._cleaned = true;
+      this._cleanOldFiles('perf-');
+    }
+  }
+
+  private _cleanOldFiles(prefix: string) {
+    try {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - this._retentionDays);
+      const cutoffStr = cutoff.toISOString().slice(0, 10);
+      for (const file of fs.readdirSync(this._logDir)) {
+        if (!file.startsWith(prefix) || !file.endsWith('.jsonl'))
+          continue;
+        const fileDate = file.replace(prefix, '').replace('.jsonl', '');
+        if (fileDate < cutoffStr)
+          fs.unlinkSync(path.join(this._logDir, file));
+      }
+    } catch (e) {
+      perfDebug('cleanup error: %o', e);
+    }
   }
 
   close() {
@@ -110,6 +135,6 @@ class NullPerfLog extends PerfLog {
 
 export const nullPerfLog = new NullPerfLog();
 
-export function createPerfLog(serviceDir: string): PerfLog {
-  return new PerfLog(path.join(serviceDir, '.local', 'perf'));
+export function createPerfLog(serviceDir: string, retentionDays?: number): PerfLog {
+  return new PerfLog(path.join(serviceDir, '.local', 'perf'), retentionDays);
 }

@@ -258,6 +258,28 @@ export type Config = {
    */
   maxResponseChars?: number;
 
+  /**
+   * MCP wrapper (dispatch-level) timeouts in milliseconds.
+   * These govern how long the server waits for a tool handler before
+   * returning a timeout error. Separate from Playwright inner timeouts.
+   */
+  /**
+   * Logging configuration.
+   */
+  logging?: {
+    /** Number of days to retain perf and error log files. Default: 10 */
+    retentionDays?: number;
+  };
+
+  toolTimeouts?: {
+    /** Default timeout for readOnly/input/action/assertion tools. Default: 5000 */
+    default?: number;
+    /** Timeout for navigation tools. Default: 15000 */
+    navigate?: number;
+    /** Timeout for browser_run_code. Default: 30000 */
+    runCode?: number;
+  };
+
   performance?: {
     /** Post-action request collection window (ms). Default: 100 */
     postActionDelay?: number;

@@ -448,6 +448,14 @@ export function mergeConfig(base: FullConfig, overrides: Config): FullConfig {
       ...pickDefined(base.performance),
       ...pickDefined(overrides.performance),
     },
+    toolTimeouts: {
+      ...pickDefined(base.toolTimeouts),
+      ...pickDefined(overrides.toolTimeouts),
+    },
+    logging: {
+      ...pickDefined(base.logging),
+      ...pickDefined(overrides.logging),
+    },
   } as FullConfig;
 }
 

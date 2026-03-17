@@ -63,6 +63,14 @@ export type ContextConfig = {
     navigation?: number;
     expect?: number;
   };
+  toolTimeouts?: {
+    default?: number;
+    navigate?: number;
+    runCode?: number;
+  };
+  logging?: {
+    retentionDays?: number;
+  };
   browser?: {
     initScript?: string[];
     initPage?: string[];
