@@ -39,6 +39,7 @@ const snapshot = defineTool({
 });
 
 export const snapshotOptionsSchema = z.object({
+  clientId: z.string().uuid().optional().describe('Persistent client identity for diff baseline continuity. Pass the clientId from your first tool response on all subsequent calls, including after resume.'),
   includeSnapshot: z.enum(['none', 'diff', 'full']).optional().describe('Control snapshot in response: "none" to suppress, "diff" for incremental diff, "full" for complete snapshot'),
   snapshotSelector: z.string().optional().describe('CSS selector to scope the returned snapshot to a specific subtree of the page DOM'),
 });

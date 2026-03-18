@@ -229,8 +229,7 @@ export class Response {
     if (this._errors.length)
       addSection('Error', this._errors);
 
-    if (this._results.length)
-      addSection('Result', this._results);
+    addSection('Result', [`- clientId: ${this._clientId}`, ...this._results]);
 
     // Code
     if (this._context.config.codegen !== 'none' && this._code.length)
