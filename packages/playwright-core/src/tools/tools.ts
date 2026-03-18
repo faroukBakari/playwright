@@ -21,6 +21,7 @@ import cookies from './cookies';
 import devtools from './devtools';
 import dialogs from './dialogs';
 import evaluate from './evaluate';
+import feedback from './feedback';
 import files from './files';
 import form from './form';
 import keyboard from './keyboard';
@@ -34,6 +35,7 @@ import selectTab from './selectTab';
 import snapshot from './snapshot';
 import screenshot from './screenshot';
 import storage from './storage';
+import styles from './styles';
 import tabs from './tabs';
 import tracing from './tracing';
 import verify from './verify';
@@ -52,6 +54,7 @@ export const browserTools: Tool<any>[] = [
   ...devtools,
   ...dialogs,
   ...evaluate,
+  ...feedback,
   ...files,
   ...form,
   ...keyboard,
@@ -65,6 +68,7 @@ export const browserTools: Tool<any>[] = [
   ...selectTab,
   ...snapshot,
   ...storage,
+  ...styles,
   ...tabs,
   ...tracing,
   ...verify,

@@ -38,7 +38,7 @@ const screenshot = defineTabTool({
   schema: {
     name: 'browser_take_screenshot',
     title: 'Take a screenshot',
-    description: `Take a screenshot of the current page and save it to a file. Also returns a DOM accessibility snapshot so you can see the page structure without a separate browser_snapshot call. You can't perform actions based on the screenshot, use browser_snapshot for actions.`,
+    description: `Take a screenshot of the current page and save it to a file. Also returns a DOM accessibility snapshot (use includeSnapshot: "none" to suppress, "diff" for incremental, "full" for complete). Use snapshotSelector to scope the snapshot to a DOM subtree. You can't perform actions based on the screenshot, use browser_snapshot for actions.`,
     inputSchema: screenshotSchema,
     type: 'readOnly',
   },

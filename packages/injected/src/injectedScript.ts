@@ -328,7 +328,8 @@ export class InjectedScript {
         incremental = renderAriaTree(ariaSnapshot, options, previousSnapshot, options.interactableOnly ? filterStats : undefined);
       this._lastAriaSnapshotForTrack.set(options.track, ariaSnapshot);
     }
-    this._lastAriaSnapshotForQuery = ariaSnapshot;
+    if (!options.rootSelector)
+      this._lastAriaSnapshotForQuery = ariaSnapshot;
     return { full, incremental, iframeRefs: ariaSnapshot.iframeRefs, filterStats: options.interactableOnly ? filterStats : undefined, selectorResolved };
   }
 

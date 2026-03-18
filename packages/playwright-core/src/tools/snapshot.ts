@@ -24,10 +24,10 @@ const snapshot = defineTool({
   schema: {
     name: 'browser_snapshot',
     title: 'Page snapshot',
-    description: 'Capture accessibility snapshot of the current page (interactable elements only). Returns element refs for interaction. Costly in tokens — prefer browser_evaluate for verification after actions.',
+    description: 'Capture accessibility snapshot of the current page (interactable elements only). Returns element refs for interaction. Use snapshotSelector to scope to a DOM subtree (e.g. "header", ".sidebar"). Costly in tokens — prefer browser_evaluate for verification after actions.',
     inputSchema: z.object({
       filename: z.string().optional().describe('Save snapshot to markdown file instead of returning it in the response.'),
-      snapshotSelector: z.string().optional().describe('CSS selector to scope the returned snapshot to a specific subtree of the page DOM'),
+      snapshotSelector: z.string().optional().describe('CSS selector to scope the snapshot to a DOM subtree (e.g. "main", ".content"). Only elements within the matched subtree appear in the snapshot. Refs from prior full-page snapshots remain valid.'),
     }),
     type: 'readOnly',
   },
@@ -41,7 +41,7 @@ const snapshot = defineTool({
 export const snapshotOptionsSchema = z.object({
   clientId: z.string().uuid().optional().describe('Persistent client identity for diff baseline continuity. Pass the clientId from your first tool response on all subsequent calls, including after resume.'),
   includeSnapshot: z.enum(['none', 'diff', 'full']).optional().describe('Control snapshot in response: "none" to suppress, "diff" for incremental diff, "full" for complete snapshot'),
-  snapshotSelector: z.string().optional().describe('CSS selector to scope the returned snapshot to a specific subtree of the page DOM'),
+  snapshotSelector: z.string().optional().describe('CSS selector to scope the snapshot to a DOM subtree (e.g. "main", ".content"). Only elements within the matched subtree appear in the snapshot. Refs from prior full-page snapshots remain valid.'),
 });
 
 export const elementSchema = z.object({
