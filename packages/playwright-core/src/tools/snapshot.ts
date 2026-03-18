@@ -34,12 +34,12 @@ const snapshot = defineTool({
 
   handle: async (context, params, response) => {
     await context.ensureTab();
-    response.setIncludeFullSnapshot(params.filename);
+    response.setIncludeSnapshot('full', undefined, params.filename);
   },
 });
 
 export const snapshotOptionsSchema = z.object({
-  includeSnapshot: z.boolean().optional().describe('Set to false to suppress the snapshot in the response, saving tokens when you already know the page state'),
+  includeSnapshot: z.enum(['none', 'diff', 'full']).optional().describe('Control snapshot in response: "none" to suppress, "diff" for incremental diff, "full" for complete snapshot'),
   snapshotSelector: z.string().optional().describe('CSS selector to scope the returned snapshot to a specific subtree of the page DOM'),
 });
 

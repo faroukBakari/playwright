@@ -17,6 +17,7 @@
 import { z } from '../mcpBundle';
 import { formatObjectOrVoid } from '../utils/isomorphic/stringUtils';
 import { defineTabTool } from './tool';
+import { snapshotOptionsSchema } from './snapshot';
 
 const mouseMove = defineTabTool({
   capability: 'vision',
@@ -119,6 +120,7 @@ const mouseClick = defineTabTool({
       button: z.enum(['left', 'right', 'middle']).optional().describe('Button to click, defaults to left'),
       clickCount: z.number().optional().describe('Number of clicks, defaults to 1'),
       delay: z.number().optional().describe('Time to wait between mouse down and mouse up in milliseconds, defaults to 0'),
+      ...snapshotOptionsSchema.shape,
     }),
     type: 'input',
   },
@@ -154,6 +156,7 @@ const mouseDrag = defineTabTool({
       startY: z.number().describe('Start Y coordinate'),
       endX: z.number().describe('End X coordinate'),
       endY: z.number().describe('End Y coordinate'),
+      ...snapshotOptionsSchema.shape,
     }),
     type: 'input',
   },

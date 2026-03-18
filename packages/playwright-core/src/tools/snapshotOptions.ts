@@ -14,12 +14,4 @@
  * limitations under the License.
  */
 
-export { BrowserServerBackend } from './browserServerBackend';
-export { browserTools } from './tools';
-export { filteredTools } from './tools';
-export { parseResponse } from './response';
-export { Tab } from './tab';
-
-export type { ContextConfig } from './context';
-export type { SnapshotMode } from './snapshotOptions';
-export type { Tool, CallToolResult, CallToolRequest } from './tool';
+export type SnapshotMode = 'none' | 'diff' | 'full';

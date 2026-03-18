@@ -382,7 +382,7 @@ export class Tab extends EventEmitter<TabEventsInterface> {
     this._requests.length = 0;
   }
 
-  async captureSnapshot(relativeTo: string | undefined, options?: { rootSelector?: string }): Promise<TabSnapshot> {
+  async captureSnapshot(relativeTo: string | undefined, options?: { rootSelector?: string; clientId?: string }): Promise<TabSnapshot> {
     await this._initializedPromise;
     const interactableOnly = this.context.config.snapshot?.interactableOnly;
     const rootSelector = options?.rootSelector;
@@ -393,7 +393,7 @@ export class Tab extends EventEmitter<TabEventsInterface> {
         target_ms: 8000,
         interactableOnly: !!interactableOnly,
         rootSelector: rootSelector || undefined,
-      }, () => this.page._snapshotForAI({ track: `response-${this.context.id}`, interactableOnly, rootSelector }), (result) => ({
+      }, () => this.page._snapshotForAI({ track: `response-${options?.clientId ?? this.context.id}`, interactableOnly, rootSelector }), (result) => ({
         full_chars: result?.full.length ?? 0,
         diff_chars: result?.incremental?.length,
       }));

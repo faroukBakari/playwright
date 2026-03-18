@@ -24,6 +24,7 @@ import { scaleImageToFitMessage } from './screenshot';
 import type { TabHeader } from './tab';
 import type { CallToolResult, ImageContent, TextContent } from '@modelcontextprotocol/sdk/types.js';
 import type { Context, FilenameTemplate } from './context';
+import type { SnapshotMode } from './snapshotOptions';
 
 export const requestDebug = debug('pw:mcp:request');
 
@@ -45,24 +46,26 @@ export class Response {
   private _errors: string[] = [];
   private _code: string[] = [];
   private _context: Context;
-  private _includeSnapshot: 'none' | 'full' | 'incremental' = 'none';
+  private _includeSnapshot: SnapshotMode = 'none';
   private _includeSnapshotFileName: string | undefined;
   private _isClose: boolean = false;
-  private _snapshotOverride: boolean | undefined;
   private _snapshotSelector: string | undefined;
+  private _snapshotMode: SnapshotMode | undefined;
+  private _clientId: string;
 
   readonly toolName: string;
   readonly toolArgs: Record<string, any>;
   private _clientWorkspace: string;
   private _imageResults: { data: Buffer, imageType: 'png' | 'jpeg' }[] = [];
 
-  constructor(context: Context, toolName: string, toolArgs: Record<string, any>, relativeTo?: string, snapshotOverride?: boolean, snapshotSelector?: string) {
+  constructor(context: Context, toolName: string, toolArgs: Record<string, any>, relativeTo?: string, snapshotSelector?: string, snapshotMode?: SnapshotMode) {
     this._context = context;
     this.toolName = toolName;
     this.toolArgs = toolArgs;
     this._clientWorkspace = relativeTo ?? context.options.cwd;
-    this._snapshotOverride = snapshotOverride;
     this._snapshotSelector = snapshotSelector;
+    this._snapshotMode = snapshotMode;
+    this._clientId = context.id;
   }
 
   private _computRelativeTo(fileName: string): string {
@@ -122,17 +125,25 @@ export class Response {
     this._code.push(code);
   }
 
-  setIncludeSnapshot() {
-    if (this._snapshotOverride === false)
+  setIncludeSnapshot(mode?: SnapshotMode, selector?: string, fileName?: string) {
+    if (this._snapshotMode === 'none')
       return;
-    this._includeSnapshot = this._context.config.snapshot?.mode || 'incremental';
-  }
-
-  setIncludeFullSnapshot(includeSnapshotFileName?: string) {
-    if (this._snapshotOverride === false)
-      return;
-    this._includeSnapshot = 'full';
-    this._includeSnapshotFileName = includeSnapshotFileName;
+    if (mode) {
+      // Handler explicit mode (e.g. browser_snapshot → 'full')
+      this._includeSnapshot = mode;
+    } else if (this._snapshotMode) {
+      // Caller-specified mode from MCP params (e.g. includeSnapshot: 'diff')
+      this._includeSnapshot = this._snapshotMode;
+    } else {
+      // No explicit mode — resolve from config (map 'incremental' → 'diff')
+      const configMode = this._context.config.snapshot?.mode;
+      this._includeSnapshot = configMode === 'none' ? 'none'
+        : configMode === 'full' ? 'full' : 'diff';
+    }
+    if (selector !== undefined)
+      this._snapshotSelector = selector;
+    if (fileName !== undefined)
+      this._includeSnapshotFileName = fileName;
   }
 
   async serialize(): Promise<CallToolResult> {
@@ -229,7 +240,7 @@ export class Response {
     if (this._snapshotSelector)
       requestDebug('snapshotSelector=%s for tool=%s', this._snapshotSelector, this.toolName);
     const shouldCapture = this._includeSnapshot !== 'none' && !!this._context.currentTab();
-    const tabSnapshot = shouldCapture ? await this._context.currentTabOrDie().captureSnapshot(this._clientWorkspace, { rootSelector: this._snapshotSelector }) : undefined;
+    const tabSnapshot = shouldCapture ? await this._context.currentTabOrDie().captureSnapshot(this._clientWorkspace, { rootSelector: this._snapshotSelector, clientId: this._clientId }) : undefined;
     requestDebug('tool=%s snapshot=%s captured=%s', this.toolName, this._includeSnapshot, shouldCapture);
     const tabHeaders = await Promise.all(this._context.tabs().map(tab => tab.headerSnapshot()));
     if (this._includeSnapshot !== 'none' || tabHeaders.some(header => header.changed)) {

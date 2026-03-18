@@ -20,6 +20,7 @@ import { formatObject } from '../utils/isomorphic/stringUtils';
 
 import { z } from '../mcpBundle';
 import { defineTabTool } from './tool';
+import { snapshotOptionsSchema } from './snapshot';
 
 import type * as playwright from '../../types/types';
 
@@ -29,6 +30,7 @@ const screenshotSchema = z.object({
   element: z.string().optional().describe('Human-readable element description used to obtain permission to screenshot the element. If not provided, the screenshot will be taken of viewport. If element is provided, ref must be provided too.'),
   ref: z.string().optional().describe('Exact target element reference from the page snapshot. If not provided, the screenshot will be taken of viewport. If ref is provided, element must be provided too.'),
   fullPage: z.boolean().optional().describe('When true, takes a screenshot of the full scrollable page, instead of the currently visible viewport. Cannot be used with element screenshots.'),
+  ...snapshotOptionsSchema.shape,
 });
 
 const screenshot = defineTabTool({

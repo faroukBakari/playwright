@@ -16,6 +16,7 @@
 
 import { z } from '../mcpBundle';
 import { defineTabTool } from './tool';
+import { snapshotOptionsSchema } from './snapshot';
 
 export const uploadFile = defineTabTool({
   capability: 'core',
@@ -26,6 +27,7 @@ export const uploadFile = defineTabTool({
     description: 'Upload one or multiple files',
     inputSchema: z.object({
       paths: z.array(z.string()).optional().describe('The absolute paths to the files to upload. Can be single file or multiple files. If omitted, file chooser is cancelled.'),
+      ...snapshotOptionsSchema.shape,
     }),
     type: 'action',
   },

@@ -23,6 +23,8 @@ import { debug } from '../utilsBundle';
 import { serverLog } from '../mcp/log';
 import crypto from 'crypto';
 
+import type { SnapshotMode } from './snapshotOptions';
+
 import type { ContextConfig } from './context';
 import type { PerfLog } from './perfLog';
 import type { ErrorLog } from './errorLog';
@@ -114,15 +116,15 @@ export class BrowserServerBackend implements ServerBackend {
 
     const parsedArguments = tool.schema.inputSchema.parse(rawArguments || {}) as any;
     const cwd = rawArguments?._meta && typeof rawArguments?._meta === 'object' && (rawArguments._meta as any)?.cwd;
-    const includeSnapshot = parsedArguments?.includeSnapshot;
+    const snapshotMode: SnapshotMode | undefined = parsedArguments?.includeSnapshot;
     const snapshotSelector = parsedArguments?.snapshotSelector;
-    if (includeSnapshot !== undefined || snapshotSelector !== undefined)
-      requestDebug('tool=%s includeSnapshot=%s snapshotSelector=%s', name, includeSnapshot, snapshotSelector);
+    if (snapshotMode !== undefined || snapshotSelector !== undefined)
+      requestDebug('tool=%s includeSnapshot=%s snapshotSelector=%s', name, snapshotMode, snapshotSelector);
     const context = this._context!;
     const callId = crypto.randomUUID();
     context.perfLog.setTool(name);
     context.perfLog.setCallId(callId);
-    const response = new Response(context, name, parsedArguments, cwd, includeSnapshot, snapshotSelector);
+    const response = new Response(context, name, parsedArguments, cwd, snapshotSelector, snapshotMode);
     context.setRunningTool(name);
     let responseObject: mcpServer.CallToolResult;
     const toolStart = performance.now();

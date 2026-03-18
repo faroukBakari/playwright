@@ -17,6 +17,7 @@
 import { z } from '../mcpBundle';
 import { debug } from '../utilsBundle';
 import { defineTool } from './tool';
+import { snapshotOptionsSchema } from './snapshot';
 
 import type { Context } from './context';
 import type { Response } from './response';
@@ -313,6 +314,7 @@ On timeout, returns current page state — you decide the next step.`,
       networkIdle: z.boolean().optional()
         .describe('Wait until no network requests for 500ms. May hang on analytics-heavy sites.'),
       timeout: z.number().optional().describe('Override timeout in seconds (default 3, max configurable via waitMaxTimeout)'),
+      ...snapshotOptionsSchema.shape,
     }),
     type: 'assertion',
   },
