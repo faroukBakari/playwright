@@ -24,6 +24,7 @@ const perfDebug = debug('pw:mcp:perf');
 export interface PerfEntry {
   ts: string;
   sid?: string;
+  clientId?: string;
   tool?: string;
   callId?: string;
   phase: string;
@@ -38,6 +39,7 @@ export interface PerfEntry {
 export class PerfLog {
   private _stream: fs.WriteStream | null = null;
   private _sessionId?: string;
+  private _clientId?: string;
   private _toolName?: string;
   private _callId?: string;
   private _retentionDays: number;
@@ -47,7 +49,21 @@ export class PerfLog {
     this._retentionDays = retentionDays ?? 10;
   }
 
-  setSession(sessionId: string) { this._sessionId = sessionId; }
+  setSession(sessionId: string) {
+    this._sessionId = sessionId;
+    this._write({
+      ts: new Date().toISOString(),
+      sid: sessionId,
+      clientId: this._clientId,
+      phase: 'session',
+      step: 'init',
+      side: 'server',
+      target_ms: 0,
+      actual_ms: 0,
+    });
+  }
+
+  setClientId(clientId: string) { this._clientId = clientId; }
   setTool(toolName: string) { this._toolName = toolName; }
   setCallId(callId: string | undefined) { this._callId = callId; }
 
@@ -76,6 +92,7 @@ export class PerfLog {
         actual_ms,
         ts: new Date().toISOString(),
         sid: this._sessionId,
+        clientId: this._clientId,
         tool: this._toolName,
         callId: this._callId,
       });
@@ -127,6 +144,8 @@ export class PerfLog {
 /** No-op PerfLog that never writes — used when perf logging is unavailable. */
 class NullPerfLog extends PerfLog {
   constructor() { super(''); }
+  override setSession(_sessionId: string) {}
+  override setClientId(_clientId: string) {}
   override async timeAsync<T>(_entry: any, fn: () => Promise<T>, _extras?: any): Promise<T> {
     return fn();
   }

@@ -239,9 +239,11 @@ export class Response {
     // Render tab titles upon changes or when more than one tab.
     if (this._snapshotSelector)
       requestDebug('snapshotSelector=%s for tool=%s', this._snapshotSelector, this.toolName);
-    const shouldCapture = this._includeSnapshot !== 'none' && !!this._context.currentTab();
-    const tabSnapshot = shouldCapture ? await this._context.currentTabOrDie().captureSnapshot(this._clientWorkspace, { rootSelector: this._snapshotSelector, clientId: this._clientId }) : undefined;
-    requestDebug('tool=%s snapshot=%s captured=%s', this.toolName, this._includeSnapshot, shouldCapture);
+    // Always capture when a tab exists — keeps baseline advancing for future diffs.
+    // The mode only controls what appears in the response, not whether we capture.
+    const hasTab = !!this._context.currentTab();
+    const tabSnapshot = hasTab ? await this._context.currentTabOrDie().captureSnapshot(this._clientWorkspace, { rootSelector: this._snapshotSelector, clientId: this._clientId }) : undefined;
+    requestDebug('tool=%s snapshot=%s hasTab=%s', this.toolName, this._includeSnapshot, hasTab);
     const tabHeaders = await Promise.all(this._context.tabs().map(tab => tab.headerSnapshot()));
     if (this._includeSnapshot !== 'none' || tabHeaders.some(header => header.changed)) {
       if (tabHeaders.length !== 1)
@@ -257,7 +259,16 @@ export class Response {
 
     // Handle tab snapshot
     if (tabSnapshot && this._includeSnapshot !== 'none') {
-      let snapshot = this._includeSnapshot === 'full' ? tabSnapshot.ariaSnapshot : tabSnapshot.ariaSnapshotDiff || tabSnapshot.ariaSnapshot;
+      // For diff mode: empty string means "nothing changed" (distinct from undefined which means "no baseline").
+      // undefined → fall back to full (first capture); empty string → emit no-changes marker.
+      let snapshot: string;
+      if (this._includeSnapshot === 'full') {
+        snapshot = tabSnapshot.ariaSnapshot;
+      } else if (tabSnapshot.ariaSnapshotDiff !== undefined) {
+        snapshot = tabSnapshot.ariaSnapshotDiff || '[no changes]';
+      } else {
+        snapshot = tabSnapshot.ariaSnapshot;
+      }
       const maxChars = this._context.config.snapshot?.maxChars;
       if (maxChars && snapshot.length > maxChars)
         snapshot = snapshot.slice(0, maxChars) + `\n... [truncated: ${snapshot.length} chars, limit ${maxChars}]`;

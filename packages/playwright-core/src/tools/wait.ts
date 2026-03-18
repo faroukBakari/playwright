@@ -68,7 +68,9 @@ async function handleTime(tab: Tab, params: WaitParams, response: Response, _tim
   }, () => new Promise(f => setTimeout(f, ms)));
   waitDebug('time: done');
   response.addTextResult(`Waited ${params.time} seconds`);
-  // No snapshot for time-only waits — pure timing, no page state change expected
+  // Respect explicit includeSnapshot param even for time-only waits
+  if ((params as any).includeSnapshot)
+    response.setIncludeSnapshot();
   return 'hit';
 }
 

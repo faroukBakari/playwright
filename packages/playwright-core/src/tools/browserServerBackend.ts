@@ -67,6 +67,7 @@ export class BrowserServerBackend implements ServerBackend {
       perfLog: this._perfLog,
       cwd: clientInfo.cwd,
     });
+    this._perfLog?.setClientId(this._context.id);
   }
 
   async dispose() {
