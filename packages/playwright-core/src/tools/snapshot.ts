@@ -27,6 +27,7 @@ const snapshot = defineTool({
     description: 'Capture accessibility snapshot of the current page (interactable elements only). Returns element refs for interaction. Costly in tokens — prefer browser_evaluate for verification after actions.',
     inputSchema: z.object({
       filename: z.string().optional().describe('Save snapshot to markdown file instead of returning it in the response.'),
+      snapshotSelector: z.string().optional().describe('CSS selector to scope the returned snapshot to a specific subtree of the page DOM'),
     }),
     type: 'readOnly',
   },
@@ -35,6 +36,11 @@ const snapshot = defineTool({
     await context.ensureTab();
     response.setIncludeFullSnapshot(params.filename);
   },
+});
+
+export const snapshotOptionsSchema = z.object({
+  includeSnapshot: z.boolean().optional().describe('Set to false to suppress the snapshot in the response, saving tokens when you already know the page state'),
+  snapshotSelector: z.string().optional().describe('CSS selector to scope the returned snapshot to a specific subtree of the page DOM'),
 });
 
 export const elementSchema = z.object({
@@ -46,6 +52,7 @@ const clickSchema = elementSchema.extend({
   doubleClick: z.boolean().optional().describe('Whether to perform a double click instead of a single click'),
   button: z.enum(['left', 'right', 'middle']).optional().describe('Button to click, defaults to left'),
   modifiers: z.array(z.enum(['Alt', 'Control', 'ControlOrMeta', 'Meta', 'Shift'])).optional().describe('Modifier keys to press'),
+  ...snapshotOptionsSchema.shape,
 });
 
 const click = defineTabTool({
@@ -53,7 +60,7 @@ const click = defineTabTool({
   schema: {
     name: 'browser_click',
     title: 'Click',
-    description: 'Perform click on a web page. Returns a snapshot of the page after the action. Pass includeSnapshot: false to suppress the snapshot and save tokens when you already know the page state.',
+    description: 'Perform click on a web page. Returns a snapshot of the page after the action.',
     inputSchema: clickSchema,
     type: 'input',
   },
@@ -88,12 +95,13 @@ const drag = defineTabTool({
   schema: {
     name: 'browser_drag',
     title: 'Drag mouse',
-    description: 'Perform drag and drop between two elements. Returns a snapshot after drag. Pass includeSnapshot: false to suppress.',
+    description: 'Perform drag and drop between two elements. Returns a snapshot after drag.',
     inputSchema: z.object({
       startElement: z.string().describe('Human-readable source element description used to obtain the permission to interact with the element'),
       startRef: z.string().describe('Exact source element reference from the page snapshot'),
       endElement: z.string().describe('Human-readable target element description used to obtain the permission to interact with the element'),
       endRef: z.string().describe('Exact target element reference from the page snapshot'),
+      ...snapshotOptionsSchema.shape,
     }),
     type: 'input',
   },
@@ -119,8 +127,8 @@ const hover = defineTabTool({
   schema: {
     name: 'browser_hover',
     title: 'Hover mouse',
-    description: 'Hover over element on page. Returns a snapshot after hover. Pass includeSnapshot: false to suppress the snapshot when not needed.',
-    inputSchema: elementSchema,
+    description: 'Hover over element on page. Returns a snapshot after hover.',
+    inputSchema: elementSchema.extend(snapshotOptionsSchema.shape),
     type: 'input',
   },
 
@@ -138,6 +146,7 @@ const hover = defineTabTool({
 
 const selectOptionSchema = elementSchema.extend({
   values: z.array(z.string()).describe('Array of values to select in the dropdown. This can be a single value or multiple values.'),
+  ...snapshotOptionsSchema.shape,
 });
 
 const selectOption = defineTabTool({
@@ -145,7 +154,7 @@ const selectOption = defineTabTool({
   schema: {
     name: 'browser_select_option',
     title: 'Select option',
-    description: 'Select an option in a dropdown. Returns a snapshot after selection. Pass includeSnapshot: false to suppress.',
+    description: 'Select an option in a dropdown. Returns a snapshot after selection.',
     inputSchema: selectOptionSchema,
     type: 'input',
   },

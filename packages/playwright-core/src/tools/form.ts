@@ -18,6 +18,7 @@ import { z } from '../mcpBundle';
 import { escapeWithQuotes } from '../utils/isomorphic/stringUtils';
 
 import { defineTabTool } from './tool';
+import { snapshotOptionsSchema } from './snapshot';
 
 const fillForm = defineTabTool({
   capability: 'core',
@@ -25,7 +26,7 @@ const fillForm = defineTabTool({
   schema: {
     name: 'browser_fill_form',
     title: 'Fill form',
-    description: 'Fill multiple form fields. Returns a snapshot after filling. Optionally click a submit button after filling. Pass includeSnapshot: false to suppress the snapshot when verifying via browser_evaluate instead.',
+    description: 'Fill multiple form fields. Returns a snapshot after filling. Optionally click a submit button after filling.',
     inputSchema: z.object({
       fields: z.array(z.object({
         name: z.string().describe('Human-readable field name'),
@@ -35,6 +36,7 @@ const fillForm = defineTabTool({
       })).describe('Fields to fill in'),
       submitRef: z.string().optional().describe('Ref of the submit button to click after filling all fields'),
       submitElement: z.string().optional().describe('Human-readable description of the submit button'),
+      ...snapshotOptionsSchema.shape,
     }),
     type: 'input',
   },
@@ -70,6 +72,8 @@ const fillForm = defineTabTool({
         await locator.click(tab.actionTimeoutOptions);
       });
     }
+
+    response.setIncludeSnapshot();
   },
 });
 

@@ -15,7 +15,7 @@
  */
 
 import { Context } from './context';
-import { Response } from './response';
+import { Response, requestDebug } from './response';
 import { SessionLog } from './sessionLog';
 import { createPerfLog } from './perfLog';
 import { createErrorLog } from './errorLog';
@@ -114,8 +114,10 @@ export class BrowserServerBackend implements ServerBackend {
 
     const parsedArguments = tool.schema.inputSchema.parse(rawArguments || {}) as any;
     const cwd = rawArguments?._meta && typeof rawArguments?._meta === 'object' && (rawArguments._meta as any)?.cwd;
-    const includeSnapshot = rawArguments?.includeSnapshot !== undefined ? Boolean(rawArguments.includeSnapshot) : undefined;
-    const snapshotSelector = rawArguments?.snapshotSelector !== undefined ? String(rawArguments.snapshotSelector) : undefined;
+    const includeSnapshot = parsedArguments?.includeSnapshot;
+    const snapshotSelector = parsedArguments?.snapshotSelector;
+    if (includeSnapshot !== undefined || snapshotSelector !== undefined)
+      requestDebug('tool=%s includeSnapshot=%s snapshotSelector=%s', name, includeSnapshot, snapshotSelector);
     const context = this._context!;
     const callId = crypto.randomUUID();
     context.perfLog.setTool(name);

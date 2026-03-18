@@ -16,7 +16,7 @@
 
 import { z } from '../mcpBundle';
 import { defineTabTool } from './tool';
-import { elementSchema } from './snapshot';
+import { elementSchema, snapshotOptionsSchema } from './snapshot';
 
 const press = defineTabTool({
   capability: 'core-input',
@@ -27,6 +27,7 @@ const press = defineTabTool({
     description: 'Press a key on the keyboard',
     inputSchema: z.object({
       key: z.string().describe('Name of the key to press or a character to generate, such as `ArrowLeft` or `a`'),
+      ...snapshotOptionsSchema.shape,
     }),
     type: 'input',
   },
@@ -78,6 +79,7 @@ const typeSchema = elementSchema.extend({
   text: z.string().describe('Text to type into the element'),
   submit: z.boolean().optional().describe('Whether to submit entered text (press Enter after)'),
   slowly: z.boolean().optional().describe('Whether to type one character at a time. Useful for triggering key handlers in the page. By default entire text is filled in at once.'),
+  ...snapshotOptionsSchema.shape,
 });
 
 const type = defineTabTool({
@@ -85,7 +87,7 @@ const type = defineTabTool({
   schema: {
     name: 'browser_type',
     title: 'Type text',
-    description: 'Type text into editable element. Returns a snapshot after typing. Pass includeSnapshot: false to suppress the snapshot and save tokens.',
+    description: 'Type text into editable element. Returns a snapshot after typing.',
     inputSchema: typeSchema,
     type: 'input',
   },

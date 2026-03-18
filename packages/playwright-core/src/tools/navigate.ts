@@ -17,6 +17,7 @@
 import { z } from '../mcpBundle';
 import { defineTool, defineTabTool } from './tool';
 import { resolveTimeout, handleText, handleSelector, handleUrl } from './wait';
+import { snapshotOptionsSchema } from './snapshot';
 
 const navigate = defineTool({
   capability: 'core-navigation',
@@ -24,9 +25,10 @@ const navigate = defineTool({
   schema: {
     name: 'browser_navigate',
     title: 'Navigate to a URL',
-    description: 'Navigate to a URL. Returns a page snapshot after loading. Pass includeSnapshot: false to suppress the snapshot when you only need navigation without page state.',
+    description: 'Navigate to a URL. Returns a page snapshot after loading.',
     inputSchema: z.object({
       url: z.string().describe('The URL to navigate to'),
+      ...snapshotOptionsSchema.shape,
     }),
     type: 'action',
   },
@@ -55,7 +57,9 @@ const goBack = defineTabTool({
     name: 'browser_navigate_back',
     title: 'Go back',
     description: 'Go back to the previous page in the history',
-    inputSchema: z.object({}),
+    inputSchema: z.object({
+      ...snapshotOptionsSchema.shape,
+    }),
     type: 'action',
   },
 
@@ -72,7 +76,9 @@ const goForward = defineTabTool({
     name: 'browser_navigate_forward',
     title: 'Go forward',
     description: 'Go forward to the next page in the history',
-    inputSchema: z.object({}),
+    inputSchema: z.object({
+      ...snapshotOptionsSchema.shape,
+    }),
     type: 'action',
   },
 
@@ -89,7 +95,9 @@ const reload = defineTabTool({
     name: 'browser_reload',
     title: 'Reload the page',
     description: 'Reload the current page',
-    inputSchema: z.object({}),
+    inputSchema: z.object({
+      ...snapshotOptionsSchema.shape,
+    }),
     type: 'action',
   },
 
@@ -112,6 +120,7 @@ const navigateAndWait = defineTool({
       waitForSelector: z.string().optional().describe('CSS selector to wait for after navigation'),
       waitForUrl: z.string().optional().describe('URL glob pattern to wait for (e.g. after redirects)'),
       timeout: z.number().optional().describe('Wait timeout in seconds (default 3)'),
+      ...snapshotOptionsSchema.shape,
     }),
     type: 'action',
   },

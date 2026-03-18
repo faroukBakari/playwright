@@ -67,7 +67,7 @@ const screenshot = defineTabTool({
       response.addCode(`await page.screenshot(${formatObject({ ...options, path: resolvedFile.relativeName })});`);
 
     await response.addFileResult(resolvedFile, data);
-    response.setIncludeFullSnapshot();
+    response.setIncludeSnapshot();
     await response.registerImageResult(data, fileType);
   }
 });

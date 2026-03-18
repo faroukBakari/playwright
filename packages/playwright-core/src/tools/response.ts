@@ -228,7 +228,9 @@ export class Response {
     // Render tab titles upon changes or when more than one tab.
     if (this._snapshotSelector)
       requestDebug('snapshotSelector=%s for tool=%s', this._snapshotSelector, this.toolName);
-    const tabSnapshot = this._context.currentTab() ? await this._context.currentTabOrDie().captureSnapshot(this._clientWorkspace, { rootSelector: this._snapshotSelector }) : undefined;
+    const shouldCapture = this._includeSnapshot !== 'none' && !!this._context.currentTab();
+    const tabSnapshot = shouldCapture ? await this._context.currentTabOrDie().captureSnapshot(this._clientWorkspace, { rootSelector: this._snapshotSelector }) : undefined;
+    requestDebug('tool=%s snapshot=%s captured=%s', this.toolName, this._includeSnapshot, shouldCapture);
     const tabHeaders = await Promise.all(this._context.tabs().map(tab => tab.headerSnapshot()));
     if (this._includeSnapshot !== 'none' || tabHeaders.some(header => header.changed)) {
       if (tabHeaders.length !== 1)
