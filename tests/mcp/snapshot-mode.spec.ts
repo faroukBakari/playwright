@@ -115,13 +115,14 @@ test('should respect --snapshot-mode=none', async ({ startClient, server }) => {
   });
 });
 
-test('should not inline console messages with --snapshot-mode=none', async ({ startClient, server }) => {
+test('should surface console errors with --snapshot-mode=none', async ({ startClient, server }) => {
   server.setContent('/', `
     <title>Tab one</title>
     <body>
       <button>Click me</button>
       <script>
         console.log('info message');
+        console.warn('warning message');
         console.error('error message');
       </script>
     </body>
@@ -136,8 +137,46 @@ test('should not inline console messages with --snapshot-mode=none', async ({ st
     arguments: { url: server.PREFIX },
   });
 
-  expect(response).not.toHaveResponse({
+  // Errors and warnings surface even without snapshots
+  expect(response).toHaveResponse({
     events: expect.stringContaining('error message'),
+  });
+  expect(response).toHaveResponse({
+    events: expect.stringContaining('warning message'),
+  });
+  // Info stays suppressed
+  expect(response).not.toHaveResponse({
+    events: expect.stringContaining('info message'),
+  });
+});
+
+test('should respect --console-level with --snapshot-mode=none', async ({ startClient, server }) => {
+  server.setContent('/', `
+    <title>Tab one</title>
+    <body>
+      <script>
+        console.warn('warning message');
+        console.error('error message');
+      </script>
+    </body>
+  `, 'text/html');
+
+  const { client } = await startClient({
+    args: ['--snapshot-mode=none', '--console-level', 'error'],
+  });
+
+  const response = await client.callTool({
+    name: 'browser_navigate',
+    arguments: { url: server.PREFIX },
+  });
+
+  // Errors surface
+  expect(response).toHaveResponse({
+    events: expect.stringContaining('error message'),
+  });
+  // Warnings excluded by console-level filter even though high-severity
+  expect(response).not.toHaveResponse({
+    events: expect.stringContaining('warning message'),
   });
 });
 

@@ -18,7 +18,7 @@ import fs from 'fs';
 import path from 'path';
 
 import { debug } from '../utilsBundle';
-import { renderModalStates, shouldIncludeMessage } from './tab';
+import { renderModalStates, shouldIncludeMessage, consoleLevelForMessageType } from './tab';
 import { scaleImageToFitMessage } from './screenshot';
 
 import type { TabHeader } from './tab';
@@ -286,9 +286,13 @@ export class Response {
       text.push(`- New console entries: ${tabSnapshot.consoleLink}`);
     if (tabSnapshot?.events.filter(event => event.type !== 'request').length) {
       for (const event of tabSnapshot.events) {
-        if (event.type === 'console' && this._context.config.outputMode !== 'file' && this._context.config.snapshot?.mode !== 'none') {
-          if (shouldIncludeMessage(this._context.config.console?.level, event.message.type))
-            text.push(`- ${trimMiddle(event.message.toString(), 100)}`);
+        if (event.type === 'console' && this._context.config.outputMode !== 'file') {
+          const level = consoleLevelForMessageType(event.message.type);
+          const isHighSeverity = level === 'error' || level === 'warning';
+          if (isHighSeverity || this._context.config.snapshot?.mode !== 'none') {
+            if (shouldIncludeMessage(this._context.config.console?.level, event.message.type))
+              text.push(`- ${trimMiddle(event.message.toString(), 100)}`);
+          }
         } else if (event.type === 'download-start') {
           text.push(`- Downloading file ${event.download.download.suggestedFilename()} ...`);
         } else if (event.type === 'download-finish') {

@@ -536,7 +536,7 @@ export function shouldIncludeMessage(thresholdLevel: ConsoleMessageLevel | undef
   return consoleMessageLevels.indexOf(messageLevel) <= consoleMessageLevels.indexOf(thresholdLevel || 'info');
 }
 
-function consoleLevelForMessageType(type: ConsoleMessageType): ConsoleMessageLevel {
+export function consoleLevelForMessageType(type: ConsoleMessageType): ConsoleMessageLevel {
   switch (type) {
     case 'assert':
     case 'error':
