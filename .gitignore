@@ -1,7 +1,7 @@
 node_modules/
 /test-results/
 /tests/coverage-report
-.local-browsers/
+.local*
 /.dev_profile*
 .DS_Store
 *.swp
