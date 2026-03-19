@@ -258,6 +258,15 @@ async function handleStreamable(
       // Recovery failed — fall through to 404.
     }
 
+    // On-demand session creation: unknown ID + POST → create with that ID.
+    // Supports bridge-promoted sessionIds where the client controls identity.
+    if (req.method === 'POST') {
+      serverLog('session', `Creating session on demand: ${sessionId}`);
+      const created = await recoverSession(serverBackendFactory, sessionId, sessions, setPersistedSessionId);
+      if (created)
+        return await created.handleRequest(req, res);
+    }
+
     res.statusCode = 404;
     res.end('Session not found');
     return;
