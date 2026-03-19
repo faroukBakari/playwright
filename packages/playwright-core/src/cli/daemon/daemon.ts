@@ -104,7 +104,7 @@ export async function startCliDaemonServer(
           const { toolName, toolParams } = parseCliCommand(params.args);
           if (params.cwd)
             toolParams._meta = { cwd: params.cwd };
-          const response = await backend.callTool(toolName, toolParams);
+          const response = await backend.callTool(toolName, toolParams, () => {});
           await connection.send({ id, result: formatResult(response) });
         } else {
           throw new Error(`Unknown method: ${method}`);

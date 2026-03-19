@@ -57,8 +57,14 @@ export async function createExtensionRelay(config: FullConfig): Promise<CDPRelay
  * Connect to a browser via an existing CDPRelay. Resets relay state,
  * waits for extension connection, then connects Playwright over CDP.
  */
-export async function createExtensionBrowser(config: FullConfig, clientInfo: ClientInfo, relay: CDPRelayServer): Promise<playwright.Browser> {
-  relay.prepareForReconnect();
+export async function createExtensionBrowser(config: FullConfig, clientInfo: ClientInfo, relay: CDPRelayServer, sessionId?: string): Promise<playwright.Browser> {
+  // Only reset relay state if no other clients are connected — otherwise
+  // we'd kill their sessions. Wave 2: multi-client isolation.
+  if (relay.clientCount === 0)
+    relay.prepareForReconnect();
   await relay.ensureExtensionConnectionForMCPContext(clientInfo, /* forceNewTab */ false);
-  return await playwright.chromium.connectOverCDP(relay.cdpEndpoint(), { isLocal: true });
+  const endpoint = sessionId
+    ? `${relay.cdpEndpoint()}?sessionId=${encodeURIComponent(sessionId)}`
+    : relay.cdpEndpoint();
+  return await playwright.chromium.connectOverCDP(endpoint, { isLocal: true });
 }

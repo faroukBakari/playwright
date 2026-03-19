@@ -15,14 +15,15 @@
  */
 
 import path from 'path';
+import crypto from 'crypto';
 import { ProgramOption } from '../utilsBundle';
 
 import * as mcpServer from './sdk/server';
 import { commaSeparatedList, dotenvFileLoader, enumParser, headerParser, numberParser, resolutionParser, resolveCLIConfig, semicolonSeparatedList } from './config';
 import { setupExitWatchdog } from './watchdog';
 import { createBrowser } from './browserFactory';
-import { createExtensionRelay } from './extensionContextFactory';
-import { BrowserServerBackend } from '../tools/browserServerBackend';
+import { createExtensionBrowser, createExtensionRelay } from './extensionContextFactory';
+import { BrowserServerBackend, SharedBackendProxy } from '../tools/browserServerBackend';
 import { filteredTools } from '../tools/tools';
 import { serverLog, testDebug } from './log';
 
@@ -102,48 +103,76 @@ export function decorateMCPCommand(command: Command, version: string) {
         const tools = filteredTools(config);
         serverLog('lifecycle', `${tools.length} tools registered`);
         if (config.extension) {
-          // Shared browser for extension mode: deferred to first client request.
-          // Without sharing, each client spawns a new Chrome + CDPRelayServer,
-          // breaking tab persistence and orphaning relays. Without deferral,
-          // the server crashes at startup if Chrome isn't immediately reachable.
-          // Promise latch ensures only one createBrowser runs; all concurrent
-          // callers await the same promise. On failure, the latch resets to
-          // allow retry on the next request.
+          // Shared backend: ONE BrowserServerBackend + ONE connectOverCDP shared
+          // across all MCP sessions. Each session gets a SharedBackendProxy that
+          // routes tool calls to the correct context via an explicit sessionId.
           //
-          // Wave 3b: Relay is created ONCE here and reused across browser deaths.
-          // createBrowser() calls relay.prepareForReconnect() internally, which
-          // resets connection state without replacing the relay or HTTP server.
+          // Identity flow: MCP sessionId → connectOverCDP(?sessionId=X) → relay
+          // parses sessionId from WS query param → extension receives sessionId
+          // in attachToTab. Single identity, no argument smuggling.
           const relay = await createExtensionRelay(config);
-          let browserPromise: ReturnType<typeof createBrowser> | null = null;
-          const getOrCreateBrowser = () => {
-            if (!browserPromise) {
-              serverLog('lifecycle', 'extension mode: creating shared browser (first client request)');
-              browserPromise = createBrowser(config, { cwd: process.cwd() }, relay).then(browser => {
-                browser.on('disconnected', () => {
-                  serverLog('lifecycle', 'extension mode: browser disconnected — will re-create on next request');
-                  browserPromise = null;
-                });
-                return browser;
-              }).catch(e => {
-                browserPromise = null;
-                throw e;
-              });
-            }
-            return browserPromise;
-          };
-          serverLog('lifecycle', 'extension mode: relay created, browser deferred to first client request');
+          let browserCreationLock: Promise<unknown> = Promise.resolve();
+          serverLog('lifecycle', 'extension mode: relay created, shared backend deferred to first client request');
+
+          let sharedBackend: BrowserServerBackend | undefined;
+          let activeSessionCount = 0;
 
           const serverBackendFactory: mcpServer.ServerBackendFactory = {
             name: 'Playwright w/ extension',
             nameInConfig: 'playwright-extension',
             version,
             toolSchemas: tools.map(tool => tool.schema),
-            create: async (_clientInfo: ClientInfo) => {
-              const browser = await getOrCreateBrowser();
-              const browserContext = browser.contexts()[0];
-              return new BrowserServerBackend(config, browserContext, tools, serviceDir);
+            create: async (clientInfo: ClientInfo) => {
+              if (!sharedBackend) {
+                // First session: create the primary browser + backend
+                const browserPromise = browserCreationLock.then(
+                    () => createExtensionBrowser(config, clientInfo, relay),
+                    () => createExtensionBrowser(config, clientInfo, relay),
+                );
+                browserCreationLock = browserPromise;
+                const browser = await browserPromise;
+                browser.on('disconnected', () => {
+                  serverLog('lifecycle', 'extension mode: primary browser disconnected');
+                });
+                const browserContext = browser.contexts()[0];
+
+                // Factory for session-routed contexts: each call creates a new
+                // connectOverCDP(?sessionId=X) → distinct relay client → distinct Chrome tab.
+                const browserFactory = async (sessionId?: string) => {
+                  const extraBrowserPromise = browserCreationLock.then(
+                      () => createExtensionBrowser(config, clientInfo, relay, sessionId),
+                      () => createExtensionBrowser(config, clientInfo, relay, sessionId),
+                  );
+                  browserCreationLock = extraBrowserPromise;
+                  const extraBrowser = await extraBrowserPromise;
+                  extraBrowser.on('disconnected', () => {
+                    serverLog('lifecycle', `extension mode: session browser disconnected (sessionId=${sessionId})`);
+                  });
+                  return extraBrowser.contexts()[0];
+                };
+
+                sharedBackend = new BrowserServerBackend(config, browserContext, tools, serviceDir, browserFactory);
+              }
+
+              activeSessionCount++;
+              const sessionId = clientInfo.sessionId ?? crypto.randomUUID();
+              serverLog('lifecycle', `extension mode: session "${sessionId}" connected (active: ${activeSessionCount})`);
+              return new SharedBackendProxy(sharedBackend, sessionId);
             },
-            disposed: async () => { }
+            disposed: async backend => {
+              activeSessionCount--;
+              const proxy = backend as SharedBackendProxy;
+              await proxy.removeSessionContext();
+              serverLog('lifecycle', `extension mode: session disconnected (active: ${activeSessionCount})`);
+
+              if (activeSessionCount === 0 && sharedBackend) {
+                serverLog('lifecycle', 'extension mode: last session gone, disposing shared backend');
+                const browser = sharedBackend.browserContext?.browser?.();
+                await sharedBackend.dispose();
+                await browser?.close().catch(() => {});
+                sharedBackend = undefined;
+              }
+            },
           };
           await mcpServer.start(serverBackendFactory, config.server);
           return;

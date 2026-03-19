@@ -63,7 +63,7 @@ export function createCustomMessageHandler(testInfo: TestInfoImpl, context: play
     if (data.callTool) {
       if (!backend)
         throw new Error('MCP backend is not initialized');
-      return { callTool: await backend.callTool(data.callTool.name, data.callTool.arguments) };
+      return { callTool: await backend.callTool(data.callTool.name, data.callTool.arguments, () => {}) };
     }
 
     if (data.close) {

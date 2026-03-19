@@ -31,26 +31,72 @@ import type { ErrorLog } from './errorLog';
 import type * as playwright from '../../types/types';
 import type { Tool } from './tool';
 import type * as mcpServer from '../mcp/sdk/server';
-import type { ClientInfo, ServerBackend } from '../mcp/sdk/server';
+import type { ClientInfo, ProgressCallback, ServerBackend } from '../mcp/sdk/server';
+
+export type BrowserFactory = (sessionId?: string) => Promise<playwright.BrowserContext>;
+
+/**
+ * Proxy that wraps a shared BrowserServerBackend, routing tool calls to the
+ * correct session context via an explicit sessionId parameter. Used in
+ * extension mode so multiple MCP sessions share ONE BrowserServerBackend
+ * while each getting its own isolated browser context (tab).
+ */
+export class SharedBackendProxy implements ServerBackend {
+  readonly browserContext: playwright.BrowserContext;
+
+  constructor(
+    private _backend: BrowserServerBackend,
+    private _sessionId: string,
+  ) {
+    this.browserContext = _backend.browserContext;
+  }
+
+  async initialize(clientInfo: ClientInfo): Promise<void> {
+    if (!this._backend.initialized)
+      await this._backend.initialize(clientInfo);
+  }
+
+  async callTool(name: string, rawArguments: any, progress: ProgressCallback) {
+    return this._backend.callTool(name, rawArguments, progress, this._sessionId);
+  }
+
+  async dispose(): Promise<void> {
+    // No-op — shared backend lifecycle managed by the factory in program.ts.
+  }
+
+  async removeSessionContext(): Promise<void> {
+    await this._backend.removeContext(this._sessionId);
+  }
+}
 
 export class BrowserServerBackend implements ServerBackend {
   private _tools: Tool[];
-  private _context: Context | undefined;
+  private _contexts: Map<string, Context> = new Map();
+  private _defaultSessionId: string | undefined;
   private _sessionLog: SessionLog | undefined;
   private _perfLog: PerfLog | undefined;
   private _errorLog: ErrorLog | undefined;
   private _config: ContextConfig;
   private _serviceDir: string | undefined;
+  private _browserFactory?: BrowserFactory;
+  private _extraBrowsers: Map<string, playwright.Browser> = new Map();
+  private _clientInfo: ClientInfo | undefined;
+  private _initialized = false;
   readonly browserContext: playwright.BrowserContext;
 
-  constructor(config: ContextConfig, browserContext: playwright.BrowserContext, tools: Tool[], serviceDir?: string) {
+  get initialized() { return this._initialized; }
+
+  constructor(config: ContextConfig, browserContext: playwright.BrowserContext, tools: Tool[], serviceDir?: string, browserFactory?: BrowserFactory) {
     this._config = config;
     this._tools = tools;
     this.browserContext = browserContext;
     this._serviceDir = serviceDir;
+    this._browserFactory = browserFactory;
   }
 
   async initialize(clientInfo: ClientInfo): Promise<void> {
+    this._initialized = true;
+    this._clientInfo = clientInfo;
     this._sessionLog = this._config.saveSession ? await SessionLog.create(this._config, clientInfo.cwd) : undefined;
     if (this._serviceDir) {
       const retentionDays = this._config.logging?.retentionDays;
@@ -61,19 +107,49 @@ export class BrowserServerBackend implements ServerBackend {
       this._perfLog?.setSession(clientInfo.sessionId);
       this._errorLog?.setSession(clientInfo.sessionId);
     }
-    this._context = new Context(this.browserContext, {
+    const context = new Context(this.browserContext, {
       config: this._config,
       sessionLog: this._sessionLog,
       perfLog: this._perfLog,
       cwd: clientInfo.cwd,
     });
-    this._perfLog?.setClientId(this._context.id);
+    this._defaultSessionId = context.id;
+    this._contexts.set(context.id, context);
+    this._perfLog?.setClientId(context.id);
   }
 
   async dispose() {
     this._perfLog?.close();
     this._errorLog?.close();
-    await this._context?.dispose().catch(e => debug('pw:tools:error')(e));
+    // Dispose all contexts (default + session-created)
+    const disposals = [...this._contexts.values()].map(
+        ctx => ctx.dispose().catch(e => debug('pw:tools:error')(e))
+    );
+    await Promise.all(disposals);
+    this._contexts.clear();
+    // Close extra browsers created by the factory
+    for (const browser of this._extraBrowsers.values())
+      await browser.close().catch(() => {});
+    this._extraBrowsers.clear();
+  }
+
+  /**
+   * Remove a single session context and close its associated browser.
+   * Called by SharedBackendProxy when an MCP session disconnects.
+   */
+  async removeContext(sessionId: string): Promise<void> {
+    const ctx = this._contexts.get(sessionId);
+    if (!ctx)
+      return;
+    await ctx.dispose().catch(e => debug('pw:tools:error')(e));
+    this._contexts.delete(sessionId);
+    // Close the extra browser backing this context
+    const extraBrowser = this._extraBrowsers.get(sessionId);
+    if (extraBrowser) {
+      this._extraBrowsers.delete(sessionId);
+      await extraBrowser.close().catch(() => {});
+    }
+    serverLog('lifecycle', `removed context for sessionId="${sessionId}" (remaining: ${this._contexts.size})`);
   }
 
   static readonly DEFAULT_TIMEOUTS: Record<string, number> = {
@@ -99,7 +175,41 @@ export class BrowserServerBackend implements ServerBackend {
     return cfg?.default ?? BrowserServerBackend.DEFAULT_TIMEOUTS[toolType] ?? 5000;
   }
 
-  async callTool(name: string, rawArguments: mcpServer.CallToolRequest['params']['arguments']) {
+  private async _resolveContext(sessionId?: string): Promise<Context> {
+    // No ID → default context (full backward compat)
+    if (!sessionId)
+      return this._contexts.get(this._defaultSessionId!)!;
+
+    // Known ID → return cached context
+    const existing = this._contexts.get(sessionId);
+    if (existing)
+      return existing;
+
+    // New ID without factory → fall back to default context
+    if (!this._browserFactory) {
+      serverLog('warn', `sessionId="${sessionId}" requested but no browser factory available, using default context`);
+      return this._contexts.get(this._defaultSessionId!)!;
+    }
+
+    // New ID with factory → create isolated browser + context
+    serverLog('lifecycle', `creating new browser context for sessionId="${sessionId}"`);
+    const browserContext = await this._browserFactory(sessionId);
+    const browser = browserContext.browser();
+    if (browser)
+      this._extraBrowsers.set(sessionId, browser);
+    const context = new Context(browserContext, {
+      config: this._config,
+      sessionLog: this._sessionLog,
+      perfLog: this._perfLog,
+      cwd: this._clientInfo?.cwd || process.cwd(),
+    });
+    context.setClientId(sessionId);
+    this._contexts.set(sessionId, context);
+    this._perfLog?.setClientId(sessionId);
+    return context;
+  }
+
+  async callTool(name: string, rawArguments: mcpServer.CallToolRequest['params']['arguments'], progress: ProgressCallback, sessionId?: string) {
     const tool = this._tools.find(tool => tool.schema.name === name)!;
     if (!tool) {
       return {
@@ -121,7 +231,7 @@ export class BrowserServerBackend implements ServerBackend {
     const snapshotSelector = parsedArguments?.snapshotSelector;
     if (snapshotMode !== undefined || snapshotSelector !== undefined)
       requestDebug('tool=%s includeSnapshot=%s snapshotSelector=%s', name, snapshotMode, snapshotSelector);
-    const context = this._context!;
+    const context = await this._resolveContext(sessionId);
     const clientIdParam: string | undefined = parsedArguments?.clientId;
     if (clientIdParam && clientIdParam !== context.id) {
       context.setClientId(clientIdParam);
