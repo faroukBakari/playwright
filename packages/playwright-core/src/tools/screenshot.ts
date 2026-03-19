@@ -16,7 +16,6 @@
 
 import { scaleImageToSize } from '../utils/isomorphic/imageUtils';
 import { jpegjs, PNG } from '../utilsBundle';
-import { formatObject } from '../utils/isomorphic/stringUtils';
 
 import { z } from '../mcpBundle';
 import { defineTabTool } from './tool';
@@ -26,7 +25,6 @@ import type * as playwright from '../../types/types';
 
 const screenshotSchema = z.object({
   type: z.enum(['png', 'jpeg']).default('png').describe('Image format for the screenshot. Default is png.'),
-  filename: z.string().optional().describe('File name to save the screenshot to. Defaults to `page-{timestamp}.{png|jpeg}` if not specified. Prefer relative file names to stay within the output directory.'),
   element: z.string().optional().describe('Human-readable element description used to obtain permission to screenshot the element. If not provided, the screenshot will be taken of viewport. If element is provided, ref must be provided too.'),
   ref: z.string().optional().describe('Exact target element reference from the page snapshot. If not provided, the screenshot will be taken of viewport. If ref is provided, element must be provided too.'),
   fullPage: z.boolean().optional().describe('When true, takes a screenshot of the full scrollable page, instead of the currently visible viewport. Cannot be used with element screenshots.'),
@@ -38,7 +36,7 @@ const screenshot = defineTabTool({
   schema: {
     name: 'browser_take_screenshot',
     title: 'Take a screenshot',
-    description: `Take a screenshot of the current page and save it to a file. Also returns a DOM accessibility snapshot (use includeSnapshot: "none" to suppress, "diff" for incremental, "full" for complete). Use snapshotSelector to scope the snapshot to a DOM subtree. You can't perform actions based on the screenshot, use browser_snapshot for actions.`,
+    description: `Take a screenshot of the current page. Returns the image inline. Also returns a DOM accessibility snapshot (use includeSnapshot: "none" to suppress, "diff" for incremental, "full" for complete). Use snapshotSelector to scope the snapshot to a DOM subtree. You can't perform actions based on the screenshot, use browser_snapshot for actions.`,
     inputSchema: screenshotSchema,
     type: 'readOnly',
   },
@@ -60,15 +58,7 @@ const screenshot = defineTabTool({
     const ref = params.ref ? await tab.refLocator({ element: params.element || '', ref: params.ref }) : null;
     const data = ref ? await ref.locator.screenshot(options) : await tab.page.screenshot(options);
 
-    const resolvedFile = await response.resolveClientFile({ prefix: ref ? 'element' : 'page', ext: fileType, suggestedFilename: params.filename }, `Screenshot of ${screenshotTarget}`);
-
-    response.addCode(`// Screenshot ${screenshotTarget} and save it as ${resolvedFile.relativeName}`);
-    if (ref)
-      response.addCode(`await page.${ref.resolved}.screenshot(${formatObject({ ...options, path: resolvedFile.relativeName })});`);
-    else
-      response.addCode(`await page.screenshot(${formatObject({ ...options, path: resolvedFile.relativeName })});`);
-
-    await response.addFileResult(resolvedFile, data);
+    response.addTextResult(`- Screenshot of ${screenshotTarget} (${fileType})`);
     response.setIncludeSnapshot();
     await response.registerImageResult(data, fileType);
   }

@@ -688,11 +688,10 @@ const screenshot = declareCommand({
     ref: z.string().optional().describe('Exact target element reference from the page snapshot.'),
   }),
   options: z.object({
-    filename: z.string().optional().describe('File name to save the screenshot to. Defaults to `page-{timestamp}.{png|jpeg}` if not specified.'),
     ['full-page']: z.boolean().optional().describe('When true, takes a screenshot of the full scrollable page, instead of the currently visible viewport.'),
   }),
   toolName: 'browser_take_screenshot',
-  toolParams: ({ ref, filename, ['full-page']: fullPage }) => ({ filename, ref, fullPage }),
+  toolParams: ({ ref, ['full-page']: fullPage }) => ({ ref, fullPage }),
 });
 
 const pdfSave = declareCommand({
