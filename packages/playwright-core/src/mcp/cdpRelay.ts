@@ -50,14 +50,13 @@ export interface ClientSession {
   sessionId: string;              // MCP-level identity, from WS query param or UUID fallback
   ws: WebSocket;
   cdpSessionId: string | null;    // Derived 'session-{sessionId}', null before Target.setAutoAttach
-  tabId: number | null;           // Chrome tab ID from extension
   targetInfo: any | null;         // CDP TargetInfo from extension
-  tabUrl: string | null;          // Last navigated URL (Page.frameNavigated tracking)
 }
 
 export interface CDPRelayOptions {
   graceTTL?: number;               // default: 5_000
   extensionGraceTTL?: number;      // default: 2_000
+  extensionCommandTimeout?: number; // default: 10_000 — lifecycle commands (attachToTab, recoverSessions)
   chromeRelaunchDebounce?: number;  // default: 2_000 (Wave 3, wired later)
   graceBufferMaxBytes?: number;    // default: 2MB
   maxConcurrentClients?: number;   // default: 4
@@ -65,6 +64,7 @@ export interface CDPRelayOptions {
 
 const DEFAULT_GRACE_TTL = 5_000;
 const DEFAULT_EXTENSION_GRACE_TTL = 2_000;
+const DEFAULT_EXTENSION_COMMAND_TIMEOUT = 10_000;
 const DEFAULT_GRACE_BUFFER_MAX_BYTES = 2 * 1024 * 1024; // 2 MB
 const DEFAULT_MAX_CONCURRENT_CLIENTS = 4;
 
@@ -108,6 +108,7 @@ export class CDPRelayServer {
   // Extension grace period state
   private _extensionGraceTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly _extensionGraceTTL: number;
+  private readonly _extensionCommandTimeout: number;
 
   // Playwright reconnection retry counter
   private _playwrightReconnectCount = 0;
@@ -120,6 +121,7 @@ export class CDPRelayServer {
     this._wsHost = addressToString(server.address(), { protocol: 'ws' });
     this._graceTTL = options?.graceTTL ?? DEFAULT_GRACE_TTL;
     this._extensionGraceTTL = options?.extensionGraceTTL ?? DEFAULT_EXTENSION_GRACE_TTL;
+    this._extensionCommandTimeout = options?.extensionCommandTimeout ?? DEFAULT_EXTENSION_COMMAND_TIMEOUT;
     this._graceBufferMaxBytes = options?.graceBufferMaxBytes ?? DEFAULT_GRACE_BUFFER_MAX_BYTES;
     this._maxConcurrentClients = options?.maxConcurrentClients ?? DEFAULT_MAX_CONCURRENT_CLIENTS;
 
@@ -138,20 +140,6 @@ export class CDPRelayServer {
     return this._state;
   }
 
-  get lastTabId(): number | null {
-    for (const session of this._clients.values()) {
-      if (session.tabId != null) return session.tabId;
-    }
-    return this._lastDisconnectedSession?.tabId ?? null;
-  }
-
-  get lastTabUrl(): string | null {
-    for (const session of this._clients.values()) {
-      if (session.tabUrl != null) return session.tabUrl;
-    }
-    return this._lastDisconnectedSession?.tabUrl ?? null;
-  }
-
   get clientCount(): number {
     return this._clients.size;
   }
@@ -162,10 +150,7 @@ export class CDPRelayServer {
    * to a new browser after the previous one died.
    */
   prepareForReconnect(): void {
-    // Snapshot active session for tab continuity across browser death
-    const sessionWithTab = [...this._clients.values()].find(s => s.tabId != null);
-    if (sessionWithTab)
-      this._lastDisconnectedSession = sessionWithTab;
+    this._lastDisconnectedSession = null;
     this._closeAllClients('preparing for reconnect');
     this._closeExtensionConnection('preparing for reconnect');
     this._cancelGrace();
@@ -244,9 +229,7 @@ export class CDPRelayServer {
         sessionId,
         ws: clientWs,
         cdpSessionId: this._lastDisconnectedSession?.cdpSessionId ?? null,
-        tabId: this._lastDisconnectedSession?.tabId ?? null,
         targetInfo: this._lastDisconnectedSession?.targetInfo ?? null,
-        tabUrl: this._lastDisconnectedSession?.tabUrl ?? null,
       };
       this._clients.set(sessionId, session);
       this._lastDisconnectedSession = null;
@@ -272,9 +255,7 @@ export class CDPRelayServer {
       sessionId,
       ws: clientWs,
       cdpSessionId: null,
-      tabId: null,
       targetInfo: null,
-      tabUrl: null,
     };
     this._clients.set(sessionId, session);
     this._state = 'connected';
@@ -297,7 +278,7 @@ export class CDPRelayServer {
         return;
 
       // Tell extension to detach this session's tab
-      if (session.tabId != null && this._extensionConnection)
+      if (session.cdpSessionId != null && this._extensionConnection)
         this._extensionConnection.send('detachTab', { sessionId }).catch(() => {});
 
       // Remove from map
@@ -409,30 +390,47 @@ export class CDPRelayServer {
     this._extensionConnectionPromise.resolve();
     this._extensionConnection.onclose = this._handleExtensionClose.bind(this);
 
-    // Reattach to the same tab — find from active clients first, then last disconnected
-    const clientWithTab = [...this._clients.values()].find(s => s.tabId != null);
-    const reattachTabId = clientWithTab?.tabId ?? this._lastDisconnectedSession?.tabId;
-    const reattachSessionId = clientWithTab?.sessionId ?? this._lastDisconnectedSession?.sessionId;
-    if (reattachTabId != null) {
-      this._extensionConnection.send('attachToTab', { tabId: reattachTabId, sessionId: reattachSessionId }).then(
-        (result) => {
-          debugLogger(`Extension reattached to tab ${reattachTabId}`);
-          if (result.targetInfo && clientWithTab) {
-            clientWithTab.targetInfo = result.targetInfo;
+    // Collect sessions that need recovery (those that went through Target.setAutoAttach)
+    const sessionsToRecover = [...this._clients.values()]
+      .filter(s => s.cdpSessionId != null)
+      .map(s => ({ sessionId: s.sessionId, cdpSessionId: s.cdpSessionId! }));
+
+    if (sessionsToRecover.length > 0) {
+      this._extensionConnection.send('recoverSessions', { sessions: sessionsToRecover }, { timeout: this._extensionCommandTimeout }).then(
+        (results: Array<{ sessionId: string; tabId?: number; targetInfo?: any; success: boolean; error?: string }>) => {
+          for (const result of results) {
+            const session = this._clients.get(result.sessionId);
+            if (!session)
+              continue;
+            if (result.success) {
+              session.targetInfo = result.targetInfo;
+            } else {
+              // Tab is gone and URL fallback failed — close the zombie session
+              debugLogger(`Closing unrecoverable session ${result.sessionId}: ${result.error}`);
+              if (session.ws.readyState === ws.OPEN)
+                session.ws.close(1000, `Tab lost during recovery: ${result.error}`);
+              this._clients.delete(result.sessionId);
+            }
           }
-          this._state = 'connected';
+          const anySuccess = results.some(r => r.success);
+          if (anySuccess) {
+            debugLogger('Extension recovery completed');
+            this._state = 'connected';
+          } else {
+            serverLog('critical', 'Extension recovery failed for all sessions');
+            this._state = 'disconnected';
+            this._closeAllClients('Extension recovery failed');
+          }
         },
         (error) => {
-          serverLog('critical', `Extension reattach failed: ${error.message}`);
+          serverLog('critical', `Extension recovery failed: ${error.message}`);
           this._state = 'disconnected';
-          this._closeAllClients('Extension reattach failed');
+          this._closeAllClients('Extension recovery failed');
         }
       );
     } else {
-      // No tab to reattach — can't resume, go disconnected
-      serverLog('critical', 'Extension reconnected but no tab to reattach — cannot resume');
-      this._state = 'disconnected';
-      this._closeAllClients('No tab to reattach');
+      // No sessions need recovery — ready for new sessions
+      this._state = 'connected';
     }
   }
 
@@ -498,12 +496,6 @@ export class CDPRelayServer {
         if (!targetSession && this._clients.size === 1)
           targetSession = this._clients.values().next().value;
 
-        // Track top-frame navigations for URL per-session
-        if (params.method === 'Page.frameNavigated' && params.params?.frame && !params.params.frame.parentFrameId) {
-          if (targetSession)
-            targetSession.tabUrl = params.params.frame.url ?? null;
-        }
-
         // Map cdpSessionId back to the client's cdpSessionId for the CDP response
         const cdpSessionId = params.cdpSessionId || targetSession?.cdpSessionId || undefined;
         const message: CDPResponse = {
@@ -566,12 +558,10 @@ export class CDPRelayServer {
         if (cdpSessionId)
           break;
         // Simulate auto-attach behavior with real target info
-        const attachResult = await this._extensionConnection!.send('attachToTab', { sessionId });
+        const attachResult = await this._extensionConnection!.send('attachToTab', { sessionId }, { timeout: this._extensionCommandTimeout });
         const { targetInfo } = attachResult;
         const session = this._clients.get(sessionId);
         if (!session) return {}; // client disconnected mid-flight
-        if (attachResult.tabId != null)
-          session.tabId = attachResult.tabId;
         session.targetInfo = targetInfo;
         session.cdpSessionId = `session-${sessionId}`;
         debugLogger('Simulating auto-attach');

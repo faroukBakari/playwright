@@ -39,15 +39,24 @@ export class ExtensionConnection {
     this._ws.on('error', this._onError.bind(this));
   }
 
-  async send<M extends keyof ExtensionCommand>(method: M, params: ExtensionCommand[M]['params']): Promise<any> {
+  async send<M extends keyof ExtensionCommand>(method: M, params: ExtensionCommand[M]['params'], options?: { timeout?: number }): Promise<any> {
     if (this._ws.readyState !== ws.OPEN)
       throw new Error(`Unexpected WebSocket state: ${this._ws.readyState}`);
     const id = ++this._lastId;
     this._ws.send(JSON.stringify({ id, method, params }));
     const error = new Error(`Protocol error: ${method}`);
-    return new Promise((resolve, reject) => {
+    const promise = new Promise((resolve, reject) => {
       this._callbacks.set(id, { resolve, reject, error });
     });
+    if (!options?.timeout)
+      return promise;
+    return Promise.race([
+      promise,
+      new Promise((_resolve, reject) => setTimeout(() => {
+        if (this._callbacks.delete(id))
+          reject(new Error(`Extension command '${method}' timed out after ${options.timeout}ms`));
+      }, options.timeout)),
+    ]);
   }
 
   sendRaw(message: any): void {

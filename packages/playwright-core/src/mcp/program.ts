@@ -15,7 +15,6 @@
  */
 
 import path from 'path';
-import crypto from 'crypto';
 import { ProgramOption } from '../utilsBundle';
 
 import * as mcpServer from './sdk/server';
@@ -103,16 +102,35 @@ export function decorateMCPCommand(command: Command, version: string) {
         const tools = filteredTools(config);
         serverLog('lifecycle', `${tools.length} tools registered`);
         if (config.extension) {
-          // Shared backend: ONE BrowserServerBackend + ONE connectOverCDP shared
-          // across all MCP sessions. Each session gets a SharedBackendProxy that
-          // routes tool calls to the correct context via an explicit sessionId.
+          // Shared backend: ONE BrowserServerBackend across all MCP sessions.
+          // Each session gets a SharedBackendProxy that routes tool calls to the
+          // correct context via an explicit sessionId.
           //
           // Identity flow: MCP sessionId → connectOverCDP(?sessionId=X) → relay
           // parses sessionId from WS query param → extension receives sessionId
           // in attachToTab. Single identity, no argument smuggling.
+          //
+          // Browser creation is lazy — no browser is created until the first tool
+          // call triggers _resolveContext. This avoids overhead when clients
+          // connect but haven't issued a command yet.
           const relay = await createExtensionRelay(config);
           let browserCreationLock: Promise<unknown> = Promise.resolve();
-          serverLog('lifecycle', 'extension mode: relay created, shared backend deferred to first client request');
+          serverLog('lifecycle', 'extension mode: relay created, browser creation deferred to first tool call');
+
+          // Factory for session-routed contexts: each call creates a new
+          // connectOverCDP(?sessionId=X) → distinct relay client → distinct Chrome tab.
+          const browserFactory = async (sessionId?: string) => {
+            const browserPromise = browserCreationLock.then(
+                () => createExtensionBrowser(config, { cwd: process.cwd() }, relay, sessionId),
+                () => createExtensionBrowser(config, { cwd: process.cwd() }, relay, sessionId),
+            );
+            browserCreationLock = browserPromise;
+            const browser = await browserPromise;
+            browser.on('disconnected', () => {
+              serverLog('lifecycle', `extension mode: browser disconnected (sessionId=${sessionId ?? 'default'})`);
+            });
+            return browser.contexts()[0];
+          };
 
           let sharedBackend: BrowserServerBackend | undefined;
           let activeSessionCount = 0;
@@ -123,39 +141,13 @@ export function decorateMCPCommand(command: Command, version: string) {
             version,
             toolSchemas: tools.map(tool => tool.schema),
             create: async (clientInfo: ClientInfo) => {
-              if (!sharedBackend) {
-                // First session: create the primary browser + backend
-                const browserPromise = browserCreationLock.then(
-                    () => createExtensionBrowser(config, clientInfo, relay),
-                    () => createExtensionBrowser(config, clientInfo, relay),
-                );
-                browserCreationLock = browserPromise;
-                const browser = await browserPromise;
-                browser.on('disconnected', () => {
-                  serverLog('lifecycle', 'extension mode: primary browser disconnected');
-                });
-                const browserContext = browser.contexts()[0];
-
-                // Factory for session-routed contexts: each call creates a new
-                // connectOverCDP(?sessionId=X) → distinct relay client → distinct Chrome tab.
-                const browserFactory = async (sessionId?: string) => {
-                  const extraBrowserPromise = browserCreationLock.then(
-                      () => createExtensionBrowser(config, clientInfo, relay, sessionId),
-                      () => createExtensionBrowser(config, clientInfo, relay, sessionId),
-                  );
-                  browserCreationLock = extraBrowserPromise;
-                  const extraBrowser = await extraBrowserPromise;
-                  extraBrowser.on('disconnected', () => {
-                    serverLog('lifecycle', `extension mode: session browser disconnected (sessionId=${sessionId})`);
-                  });
-                  return extraBrowser.contexts()[0];
-                };
-
-                sharedBackend = new BrowserServerBackend(config, browserContext, tools, serviceDir, browserFactory);
-              }
+              if (!sharedBackend)
+                sharedBackend = new BrowserServerBackend(config, null, tools, serviceDir, browserFactory);
 
               activeSessionCount++;
-              const sessionId = clientInfo.sessionId ?? crypto.randomUUID();
+              const sessionId = clientInfo.sessionId;
+              if (!sessionId)
+                throw new Error('Extension mode requires a sessionId from the MCP client');
               serverLog('lifecycle', `extension mode: session "${sessionId}" connected (active: ${activeSessionCount})`);
               return new SharedBackendProxy(sharedBackend, sessionId);
             },
@@ -167,9 +159,7 @@ export function decorateMCPCommand(command: Command, version: string) {
 
               if (activeSessionCount === 0 && sharedBackend) {
                 serverLog('lifecycle', 'extension mode: last session gone, disposing shared backend');
-                const browser = sharedBackend.browserContext?.browser?.();
                 await sharedBackend.dispose();
-                await browser?.close().catch(() => {});
                 sharedBackend = undefined;
               }
             },
@@ -198,14 +188,14 @@ export function decorateMCPCommand(command: Command, version: string) {
               // individual clients. Only close isolated contexts; never close
               // the shared browser itself — it persists until server shutdown.
               if (config.browser.isolated) {
-                const browserContext = (backend as BrowserServerBackend).browserContext;
+                const browserContext = (backend as BrowserServerBackend).browserContext!;
                 await browserContext.close().catch(() => { });
               }
               return;
             }
 
             testDebug('close browser');
-            const browserContext = (backend as BrowserServerBackend).browserContext;
+            const browserContext = (backend as BrowserServerBackend).browserContext!;
             await browserContext.close().catch(() => { });
             await browserContext.browser()!.close().catch(() => { });
           }

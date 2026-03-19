@@ -42,13 +42,10 @@ export type BrowserFactory = (sessionId?: string) => Promise<playwright.BrowserC
  * while each getting its own isolated browser context (tab).
  */
 export class SharedBackendProxy implements ServerBackend {
-  readonly browserContext: playwright.BrowserContext;
-
   constructor(
     private _backend: BrowserServerBackend,
     private _sessionId: string,
   ) {
-    this.browserContext = _backend.browserContext;
   }
 
   async initialize(clientInfo: ClientInfo): Promise<void> {
@@ -82,11 +79,11 @@ export class BrowserServerBackend implements ServerBackend {
   private _extraBrowsers: Map<string, playwright.Browser> = new Map();
   private _clientInfo: ClientInfo | undefined;
   private _initialized = false;
-  readonly browserContext: playwright.BrowserContext;
+  readonly browserContext: playwright.BrowserContext | null;
 
   get initialized() { return this._initialized; }
 
-  constructor(config: ContextConfig, browserContext: playwright.BrowserContext, tools: Tool[], serviceDir?: string, browserFactory?: BrowserFactory) {
+  constructor(config: ContextConfig, browserContext: playwright.BrowserContext | null, tools: Tool[], serviceDir?: string, browserFactory?: BrowserFactory) {
     this._config = config;
     this._tools = tools;
     this.browserContext = browserContext;
@@ -107,15 +104,20 @@ export class BrowserServerBackend implements ServerBackend {
       this._perfLog?.setSession(clientInfo.sessionId);
       this._errorLog?.setSession(clientInfo.sessionId);
     }
-    const context = new Context(this.browserContext, {
-      config: this._config,
-      sessionLog: this._sessionLog,
-      perfLog: this._perfLog,
-      cwd: clientInfo.cwd,
-    });
-    this._defaultSessionId = context.id;
-    this._contexts.set(context.id, context);
-    this._perfLog?.setClientId(context.id);
+    // Create default context only when a browserContext was provided at
+    // construction time (non-extension path). In extension mode, all contexts
+    // are created lazily via _resolveContext → _browserFactory.
+    if (this.browserContext) {
+      const context = new Context(this.browserContext, {
+        config: this._config,
+        sessionLog: this._sessionLog,
+        perfLog: this._perfLog,
+        cwd: clientInfo.cwd,
+      });
+      this._defaultSessionId = context.id;
+      this._contexts.set(context.id, context);
+      this._perfLog?.setClientId(context.id);
+    }
   }
 
   async dispose() {

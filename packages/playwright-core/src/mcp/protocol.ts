@@ -25,6 +25,9 @@ export type ExtensionCommand = {
   'detachTab': {
     params: { sessionId: string };
   };
+  'recoverSessions': {
+    params: { sessions: Array<{ sessionId: string; cdpSessionId: string }> };
+  };
   'forwardCDPCommand': {
     params: {
       sessionId?: string,
