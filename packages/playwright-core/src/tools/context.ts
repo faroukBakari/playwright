@@ -76,6 +76,10 @@ export type ContextConfig = {
     initScript?: string[];
     initPage?: string[];
   };
+  evaluate?: {
+    maxResultLength?: number;
+  };
+  maxResponseChars?: number;
   skillMode?: boolean;
   performance?: {
     postActionDelay?: number;
