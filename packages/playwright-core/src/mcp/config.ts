@@ -456,6 +456,10 @@ export function mergeConfig(base: FullConfig, overrides: Config): FullConfig {
       ...pickDefined(base.logging),
       ...pickDefined(overrides.logging),
     },
+    relay: {
+      ...pickDefined(base.relay),
+      ...pickDefined(overrides.relay),
+    },
   } as FullConfig;
 }
 

@@ -280,6 +280,11 @@ export type Config = {
     runCode?: number;
   };
 
+  relay?: {
+    /** Maximum number of concurrent CDP clients. Default: 4 */
+    maxConcurrentClients?: number;
+  };
+
   performance?: {
     /** Post-action request collection window (ms). Default: 100 */
     postActionDelay?: number;

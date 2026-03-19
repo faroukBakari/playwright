@@ -41,7 +41,8 @@ export async function createExtensionRelay(config: FullConfig): Promise<CDPRelay
   await startHttpServer(httpServer, {});
   const relay = new CDPRelayServer(
       httpServer,
-      config.browser.launchOptions.channel || 'chrome');
+      config.browser.launchOptions.channel || 'chrome',
+      { maxConcurrentClients: config.relay?.maxConcurrentClients });
   debugLogger(`CDP relay server started, extension endpoint: ${relay.extensionEndpoint()}.`);
 
   // Derive HTTP base URL from the relay's WS endpoint (ws://host:port/cdp/uuid → http://host:port)

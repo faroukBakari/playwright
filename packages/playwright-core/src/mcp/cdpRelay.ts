@@ -18,41 +18,49 @@
  * WebSocket server that bridges Playwright MCP and Chrome Extension
  *
  * Endpoints:
- * - /cdp/guid - Full CDP interface for Playwright MCP
+ * - /cdp/guid - Full CDP interface for Playwright MCP (N concurrent clients)
  * - /extension/guid - Extension connection for chrome.debugger forwarding
  */
 
-import { spawn } from 'child_process';
-import fs from 'fs';
 import http from 'http';
 
 import { debug, ws, wsServer } from '../utilsBundle';
 import { ManualPromise } from '../utils/isomorphic/manualPromise';
 
 import { addressToString } from './sdk/http';
+import { launchBrowserToExtension } from './browserLauncher';
 import { logUnhandledError, serverLog } from './log';
-import * as protocol from './protocol';
 
 import type websocket from 'ws';
 import type { ClientInfo } from './sdk/server';
 import type { ExtensionCommand, ExtensionEvents } from './protocol';
 import type { WebSocket, WebSocketServer } from '../utilsBundle';
 
-
 const debugLogger = debug('pw:mcp:relay');
 
 export type RelayState = 'connected' | 'grace' | 'extensionGrace' | 'disconnected';
 
+export interface ClientSession {
+  clientId: string;
+  ws: WebSocket;
+  sessionId: string | null;     // Relay-assigned ('pw-tab-N'), null before Target.setAutoAttach
+  tabId: number | null;         // Chrome tab ID from extension
+  targetInfo: any | null;       // CDP TargetInfo from extension
+  tabUrl: string | null;        // Last navigated URL (Page.frameNavigated tracking)
+}
+
 export interface CDPRelayOptions {
-  graceTTL?: number;               // default: 5_000 (was 30_000)
-  extensionGraceTTL?: number;      // default: 2_000 (Wave 2, wired later)
+  graceTTL?: number;               // default: 5_000
+  extensionGraceTTL?: number;      // default: 2_000
   chromeRelaunchDebounce?: number;  // default: 2_000 (Wave 3, wired later)
   graceBufferMaxBytes?: number;    // default: 2MB
+  maxConcurrentClients?: number;   // default: 4
 }
 
 const DEFAULT_GRACE_TTL = 5_000;
 const DEFAULT_EXTENSION_GRACE_TTL = 2_000;
 const DEFAULT_GRACE_BUFFER_MAX_BYTES = 2 * 1024 * 1024; // 2 MB
+const DEFAULT_MAX_CONCURRENT_CLIENTS = 4;
 
 type CDPCommand = {
   id: number;
@@ -72,22 +80,21 @@ type CDPResponse = {
 
 export class CDPRelayServer {
   private _wsHost: string;
-  private _browserChannel: string;
   private _cdpPath: string;
   private _extensionPath: string;
   private _httpServer: http.Server;
   private _wss: WebSocketServer;
-  private _playwrightConnection: WebSocket | null = null;
   private _extensionConnection: ExtensionConnection | null = null;
-  private _connectedTabInfo: {
-    targetInfo: any;
-    // Page sessionId that should be used by this connection.
-    sessionId: string;
-  } | undefined;
   private _nextSessionId: number = 1;
   private _extensionConnectionPromise!: ManualPromise<void>;
 
-  // Grace period state (Part A)
+  // Multi-client state
+  private _clients = new Map<string, ClientSession>();
+  private _sessionToClient = new Map<string, string>();
+  private readonly _maxConcurrentClients: number;
+  private _lastDisconnectedSession: ClientSession | null = null;
+
+  // Grace period state
   private _state: RelayState = 'disconnected';
   private _graceTimer: ReturnType<typeof setTimeout> | null = null;
   private _graceBuffer: { data: string; size: number }[] = [];
@@ -95,29 +102,27 @@ export class CDPRelayServer {
   private readonly _graceTTL: number;
   private readonly _graceBufferMaxBytes: number;
 
-  // Extension grace period state (Wave 2)
+  // Extension grace period state
   private _extensionGraceTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly _extensionGraceTTL: number;
-  private _lastTabId: number | null = null;
-  private _lastTabUrl: string | null = null;
 
   // Playwright reconnection retry counter
   private _playwrightReconnectCount = 0;
   private readonly _maxPlaywrightReconnects = 3;
 
-  // Sideband HTTP pending requests (Part B)
+  // Sideband HTTP pending requests
   private _registryCallbacks = new Map<string, {
     resolve: (value: any) => void;
     timer: ReturnType<typeof setTimeout>;
   }>();
 
-  constructor(server: http.Server, browserChannel: string, options?: CDPRelayOptions) {
+  constructor(server: http.Server, _browserChannel: string, options?: CDPRelayOptions) {
     this._wsHost = addressToString(server.address(), { protocol: 'ws' });
-    this._browserChannel = browserChannel;
     this._httpServer = server;
     this._graceTTL = options?.graceTTL ?? DEFAULT_GRACE_TTL;
     this._extensionGraceTTL = options?.extensionGraceTTL ?? DEFAULT_EXTENSION_GRACE_TTL;
     this._graceBufferMaxBytes = options?.graceBufferMaxBytes ?? DEFAULT_GRACE_BUFFER_MAX_BYTES;
+    this._maxConcurrentClients = options?.maxConcurrentClients ?? DEFAULT_MAX_CONCURRENT_CLIENTS;
 
     const uuid = crypto.randomUUID();
     this._cdpPath = `/cdp/${uuid}`;
@@ -134,11 +139,21 @@ export class CDPRelayServer {
   }
 
   get lastTabId(): number | null {
-    return this._lastTabId;
+    for (const session of this._clients.values()) {
+      if (session.tabId != null) return session.tabId;
+    }
+    return this._lastDisconnectedSession?.tabId ?? null;
   }
 
   get lastTabUrl(): string | null {
-    return this._lastTabUrl;
+    for (const session of this._clients.values()) {
+      if (session.tabUrl != null) return session.tabUrl;
+    }
+    return this._lastDisconnectedSession?.tabUrl ?? null;
+  }
+
+  get clientCount(): number {
+    return this._clients.size;
   }
 
   /**
@@ -147,18 +162,19 @@ export class CDPRelayServer {
    * to a new browser after the previous one died.
    */
   prepareForReconnect(): void {
-    this._closePlaywrightConnection('preparing for reconnect');
+    // Snapshot active session for tab continuity across browser death
+    const sessionWithTab = [...this._clients.values()].find(s => s.tabId != null);
+    if (sessionWithTab)
+      this._lastDisconnectedSession = sessionWithTab;
+    this._closeAllClients('preparing for reconnect');
     this._closeExtensionConnection('preparing for reconnect');
     this._cancelGrace();
     this._cancelExtensionGrace();
-    this._connectedTabInfo = undefined;
     this._nextSessionId = 1;
     this._playwrightReconnectCount = 0;
     this._graceBuffer = [];
     this._graceBufferBytes = 0;
     this._state = 'disconnected';
-    // Preserve: _lastTabId, _lastTabUrl (tab continuity across deaths)
-    // Preserve: _wss, _httpServer, _cdpPath, _extensionPath (infrastructure)
   }
 
   cdpEndpoint() {
@@ -173,7 +189,7 @@ export class CDPRelayServer {
     debugLogger('Ensuring extension connection for MCP context');
     if (this._extensionConnection)
       return;
-    this._connectBrowser(clientInfo, forceNewTab);
+    launchBrowserToExtension(this.extensionEndpoint(), forceNewTab);
     debugLogger('Waiting for incoming extension connection');
     await Promise.race([
       this._extensionConnectionPromise,
@@ -184,76 +200,6 @@ export class CDPRelayServer {
     debugLogger('Extension connection established');
   }
 
-  private _connectBrowser(clientInfo: ClientInfo, forceNewTab: boolean) {
-    const mcpRelayEndpoint = `${this._wsHost}${this._extensionPath}`;
-    // ia-custom: Extension ID is configurable via env var for test compatibility.
-    // Default: our unpacked extension ID (stable per deploy dir %LOCALAPPDATA%\playwright-mcp-bridge\).
-    // Upstream published ID: mmlmfjhmonkocbjadbfplnigmagldckm
-    // Tests inject the published key into the manifest, producing the published ID —
-    // set PLAYWRIGHT_MCP_EXTENSION_ID to match.
-    const extensionId = process.env.PLAYWRIGHT_MCP_EXTENSION_ID || 'fjaaeokdflnbifiadcgneihbpkmmlikp';
-    const url = new URL(`chrome-extension://${extensionId}/connect.html`);
-    url.searchParams.set('mcpRelayUrl', mcpRelayEndpoint);
-    const client = {
-      name: 'Playwright Agent',
-      // ia-custom: ../../ resolves to playwright-core/ in monorepo layout
-      // (upstream uses ../../../ which resolves to package root in published npm)
-      version: require('../../package.json').version,
-    };
-    url.searchParams.set('client', JSON.stringify(client));
-    url.searchParams.set('protocolVersion', process.env.PWMCP_TEST_PROTOCOL_VERSION ?? protocol.VERSION.toString());
-    if (forceNewTab)
-      url.searchParams.set('newTab', 'true');
-    const token = process.env.PLAYWRIGHT_MCP_EXTENSION_TOKEN;
-    if (token)
-      url.searchParams.set('token', token);
-    const href = url.toString();
-
-    serverLog('lifecycle', `extension mode: opening connect URL in browser`);
-    this._openUrlInChrome(href);
-  }
-
-  private _openUrlInChrome(url: string) {
-    const isWSL = (() => {
-      try {
-        return fs.readFileSync('/proc/version', 'utf8').toLowerCase().includes('microsoft');
-      } catch {
-        return false;
-      }
-    })();
-
-    if (isWSL) {
-      // WSL: PowerShell finds Chrome via Windows app registry — no exe path needed
-      spawn('powershell.exe', ['-NoProfile', '-Command', `Start-Process 'chrome' -ArgumentList '${url}'`], {
-        windowsHide: true,
-        detached: true,
-        shell: false,
-        stdio: 'ignore',
-      }).unref();
-    } else if (process.platform === 'darwin') {
-      // macOS: Launch Services finds Chrome
-      spawn('open', ['-a', 'Google Chrome', url], {
-        detached: true,
-        stdio: 'ignore',
-      }).unref();
-    } else {
-      // Native Linux: direct chrome invocation (xdg-open can't handle chrome-extension:// scheme)
-      const candidates = ['google-chrome', 'google-chrome-stable', 'chromium-browser', 'chromium'];
-      let launched = false;
-      for (const bin of candidates) {
-        try {
-          spawn(bin, [url], { detached: true, stdio: 'ignore' }).unref();
-          launched = true;
-          break;
-        } catch {
-          // try next candidate
-        }
-      }
-      if (!launched)
-        throw new Error('Chrome/Chromium not found. Install Chrome or set a browser channel.');
-    }
-  }
-
   stop(): void {
     this._cancelGrace();
     this._cancelExtensionGrace();
@@ -262,30 +208,30 @@ export class CDPRelayServer {
   }
 
   closeConnections(reason: string) {
-    this._closePlaywrightConnection(reason);
+    this._closeAllClients(reason);
     this._closeExtensionConnection(reason);
   }
 
-  private _onConnection(ws: WebSocket, request: http.IncomingMessage): void {
+  private _onConnection(clientWs: WebSocket, request: http.IncomingMessage): void {
     const url = new URL(`http://localhost${request.url}`);
     debugLogger(`New connection to ${url.pathname}`);
     if (url.pathname === this._cdpPath) {
-      this._handlePlaywrightConnection(ws);
+      this._handlePlaywrightConnection(clientWs);
     } else if (url.pathname === this._extensionPath) {
-      this._handleExtensionConnection(ws);
+      this._handleExtensionConnection(clientWs);
     } else {
       debugLogger(`Invalid path: ${url.pathname}`);
-      ws.close(4004, 'Invalid path');
+      clientWs.close(4004, 'Invalid path');
     }
   }
 
-  private _handlePlaywrightConnection(ws: WebSocket): void {
-    // During grace period: accept reconnection, rewire to existing extension WS
+  private _handlePlaywrightConnection(clientWs: WebSocket): void {
+    // During grace period: accept reconnection, resume last session
     if (this._state === 'grace') {
       this._playwrightReconnectCount++;
       if (this._playwrightReconnectCount > this._maxPlaywrightReconnects) {
         serverLog('critical', `Playwright reconnect limit exceeded (${this._playwrightReconnectCount}/${this._maxPlaywrightReconnects})`);
-        ws.close(1008, 'Reconnect limit exceeded');
+        clientWs.close(1008, 'Reconnect limit exceeded');
         this._cancelGrace();
         this._extensionConnection?.sendRaw({ type: 'registry:serverDown' });
         this._closeExtensionConnection('Reconnect limit exceeded');
@@ -293,55 +239,92 @@ export class CDPRelayServer {
         return;
       }
       debugLogger('Playwright reconnected during grace period');
-      this._playwrightConnection = ws;
+      const clientId = this._lastDisconnectedSession?.clientId ?? crypto.randomUUID();
+      const session: ClientSession = {
+        clientId,
+        ws: clientWs,
+        sessionId: this._lastDisconnectedSession?.sessionId ?? null,
+        tabId: this._lastDisconnectedSession?.tabId ?? null,
+        targetInfo: this._lastDisconnectedSession?.targetInfo ?? null,
+        tabUrl: this._lastDisconnectedSession?.tabUrl ?? null,
+      };
+      this._clients.set(clientId, session);
+      if (session.sessionId)
+        this._sessionToClient.set(session.sessionId, clientId);
+      this._lastDisconnectedSession = null;
       this._cancelGrace();
-      this._flushGraceBuffer();
+      this._flushGraceBuffer(clientWs);
       this._state = 'connected';
-      this._installPlaywrightHandlers(ws);
+      this._installPlaywrightHandlers(clientWs, clientId);
       return;
     }
 
-    if (this._playwrightConnection) {
-      debugLogger('Rejecting second Playwright connection');
-      ws.close(1000, 'Another CDP client already connected');
+    // Concurrency cap
+    if (this._clients.size >= this._maxConcurrentClients) {
+      debugLogger('Rejecting connection: concurrent client limit reached');
+      clientWs.close(1008, 'Concurrent client limit reached');
       return;
     }
-    this._playwrightReconnectCount = 0;
-    this._playwrightConnection = ws;
+
+    // Reset reconnect counter only on transition from disconnected
+    if (this._state === 'disconnected')
+      this._playwrightReconnectCount = 0;
+
+    const clientId = crypto.randomUUID();
+    const session: ClientSession = {
+      clientId,
+      ws: clientWs,
+      sessionId: null,
+      tabId: null,
+      targetInfo: null,
+      tabUrl: null,
+    };
+    this._clients.set(clientId, session);
     this._state = 'connected';
-    this._installPlaywrightHandlers(ws);
-    debugLogger('Playwright MCP connected');
+    this._installPlaywrightHandlers(clientWs, clientId);
+    debugLogger(`Client ${clientId} connected (${this._clients.size} total)`);
   }
 
-  private _installPlaywrightHandlers(ws: WebSocket): void {
-    ws.on('message', async data => {
+  private _installPlaywrightHandlers(clientWs: WebSocket, clientId: string): void {
+    clientWs.on('message', async data => {
       try {
         const message = JSON.parse(data.toString());
-        await this._handlePlaywrightMessage(message);
+        await this._handlePlaywrightMessage(message, clientId);
       } catch (error: any) {
         debugLogger(`Error while handling Playwright message\n${data.toString()}\n`, error);
       }
     });
-    ws.on('close', () => {
-      if (this._playwrightConnection !== ws)
+    clientWs.on('close', () => {
+      const session = this._clients.get(clientId);
+      if (!session || session.ws !== clientWs)
         return;
-      this._playwrightConnection = null;
-      // If in extension grace, both sides gone — immediate disconnected
-      if (this._state === 'extensionGrace') {
+
+      // Remove from maps
+      if (session.sessionId)
+        this._sessionToClient.delete(session.sessionId);
+      this._clients.delete(clientId);
+
+      // If in extension grace and all clients gone — immediate disconnected
+      if (this._state === 'extensionGrace' && this._clients.size === 0) {
         this._cancelExtensionGrace();
         this._state = 'disconnected';
-        debugLogger('Playwright closed during extension grace — disconnected');
+        debugLogger('Last client closed during extension grace — disconnected');
         return;
       }
-      // Grace period: hold extension connection if it's still alive
-      if (this._extensionConnection) {
-        this._enterGrace();
-      } else {
-        this._state = 'disconnected';
+
+      // Last client: enter grace or go disconnected
+      if (this._clients.size === 0) {
+        this._lastDisconnectedSession = session;
+        if (this._extensionConnection) {
+          this._enterGrace();
+        } else {
+          this._state = 'disconnected';
+        }
       }
-      debugLogger('Playwright WebSocket closed');
+      // Non-last disconnect: no state change
+      debugLogger(`Client ${clientId} disconnected (${this._clients.size} remaining)`);
     });
-    ws.on('error', error => {
+    clientWs.on('error', error => {
       debugLogger('Playwright WebSocket error:', error);
     });
   }
@@ -369,15 +352,17 @@ export class CDPRelayServer {
     }
   }
 
-  private _flushGraceBuffer(): void {
+  private _flushGraceBuffer(targetWs: WebSocket): void {
     debugLogger(`Flushing ${this._graceBuffer.length} buffered events`);
-    for (const event of this._graceBuffer)
-      this._playwrightConnection?.send(event.data);
+    for (const event of this._graceBuffer) {
+      if (targetWs.readyState === ws.OPEN)
+        targetWs.send(event.data);
+    }
     this._graceBuffer = [];
     this._graceBufferBytes = 0;
   }
 
-  // --- Extension grace (Wave 2) ---
+  // --- Extension grace ---
 
   private _enterExtensionGrace(): void {
     debugLogger(`Entering extension grace period (${this._extensionGraceTTL}ms)`);
@@ -387,7 +372,7 @@ export class CDPRelayServer {
       debugLogger('Extension grace period expired');
       this._extensionGraceTimer = null;
       this._state = 'disconnected';
-      this._closePlaywrightConnection('Extension grace expired');
+      this._closeAllClients('Extension grace expired');
     }, this._extensionGraceTTL);
   }
 
@@ -398,57 +383,56 @@ export class CDPRelayServer {
     }
   }
 
-  private _acceptExtensionReconnection(ws: WebSocket): void {
+  private _handleExtensionClose(c: ExtensionConnection, reason: string): void {
+    debugLogger('Extension WebSocket closed:', reason, c === this._extensionConnection);
+    if (this._extensionConnection !== c)
+      return;
+    this._resetExtensionConnection();
+    if (this._clients.size === 0 || this._state === 'grace') {
+      this._cancelGrace();
+      this._graceBuffer = [];
+      this._graceBufferBytes = 0;
+      this._state = 'disconnected';
+      this._closeAllClients(`Extension disconnected: ${reason}`);
+      return;
+    }
+    this._enterExtensionGrace();
+  }
+
+  private _acceptExtensionReconnection(extWs: WebSocket): void {
     debugLogger('Extension reconnected during grace period');
-    this._extensionConnection = new ExtensionConnection(ws);
+    this._extensionConnection = new ExtensionConnection(extWs);
     this._extensionConnection.onmessage = this._handleExtensionMessage.bind(this);
     this._extensionConnection.onregistryresponse = this._handleRegistryResponse.bind(this);
     this._extensionConnection.onlogmessage = (msg) => {
       serverLog(`ext:${msg.channel || 'unknown'}`, msg.message || '');
     };
     this._extensionConnectionPromise.resolve();
+    this._extensionConnection.onclose = this._handleExtensionClose.bind(this);
 
-    // Rewire the onclose handler for the new connection
-    this._extensionConnection.onclose = (c, reason) => {
-      debugLogger('Extension WebSocket closed:', reason, c === this._extensionConnection);
-      if (this._extensionConnection !== c)
-        return;
-      this._resetExtensionConnection();
-      if (!this._playwrightConnection || this._state === 'grace') {
-        this._cancelGrace();
-        this._graceBuffer = [];
-        this._graceBufferBytes = 0;
-        this._state = 'disconnected';
-        this._closePlaywrightConnection(`Extension disconnected: ${reason}`);
-        return;
-      }
-      this._enterExtensionGrace();
-    };
-
-    // Reattach to the same tab if we know the tabId
-    if (this._lastTabId != null) {
-      this._extensionConnection.send('attachToTab', { tabId: this._lastTabId }).then(
+    // Reattach to the same tab — find from active clients first, then last disconnected
+    const clientWithTab = [...this._clients.values()].find(s => s.tabId != null);
+    const reattachTabId = clientWithTab?.tabId ?? this._lastDisconnectedSession?.tabId;
+    if (reattachTabId != null) {
+      this._extensionConnection.send('attachToTab', { tabId: reattachTabId }).then(
         (result) => {
-          debugLogger(`Extension reattached to tab ${this._lastTabId}`);
-          if (result.targetInfo) {
-            this._connectedTabInfo = {
-              targetInfo: result.targetInfo,
-              sessionId: this._connectedTabInfo?.sessionId ?? `pw-tab-${this._nextSessionId++}`,
-            };
+          debugLogger(`Extension reattached to tab ${reattachTabId}`);
+          if (result.targetInfo && clientWithTab) {
+            clientWithTab.targetInfo = result.targetInfo;
           }
           this._state = 'connected';
         },
         (error) => {
           serverLog('critical', `Extension reattach failed: ${error.message}`);
           this._state = 'disconnected';
-          this._closePlaywrightConnection('Extension reattach failed');
+          this._closeAllClients('Extension reattach failed');
         }
       );
     } else {
       // No tab to reattach — can't resume, go disconnected
-      serverLog('critical', 'Extension reconnected but no lastTabId — cannot resume');
+      serverLog('critical', 'Extension reconnected but no tab to reattach — cannot resume');
       this._state = 'disconnected';
-      this._closePlaywrightConnection('No tab to reattach');
+      this._closeAllClients('No tab to reattach');
     }
   }
 
@@ -474,47 +458,33 @@ export class CDPRelayServer {
   }
 
   private _resetExtensionConnection() {
-    this._connectedTabInfo = undefined;
     this._extensionConnection = null;
     this._extensionConnectionPromise = new ManualPromise();
     void this._extensionConnectionPromise.catch(logUnhandledError);
   }
 
-  private _closePlaywrightConnection(reason: string) {
-    if (this._playwrightConnection?.readyState === ws.OPEN)
-      this._playwrightConnection.close(1000, reason);
-    this._playwrightConnection = null;
+  private _closeAllClients(reason: string): void {
+    for (const session of this._clients.values()) {
+      if (session.ws.readyState === ws.OPEN)
+        session.ws.close(1000, reason);
+    }
+    this._clients.clear();
+    this._sessionToClient.clear();
   }
 
-  private _handleExtensionConnection(ws: WebSocket): void {
+  private _handleExtensionConnection(extWs: WebSocket): void {
     // During extension grace: accept reconnection from restarted service worker
     if (this._state === 'extensionGrace') {
       this._cancelExtensionGrace();
-      this._acceptExtensionReconnection(ws);
+      this._acceptExtensionReconnection(extWs);
       return;
     }
     if (this._extensionConnection) {
-      ws.close(1000, 'Another extension connection already established');
+      extWs.close(1000, 'Another extension connection already established');
       return;
     }
-    this._extensionConnection = new ExtensionConnection(ws);
-    this._extensionConnection.onclose = (c, reason) => {
-      debugLogger('Extension WebSocket closed:', reason, c === this._extensionConnection);
-      if (this._extensionConnection !== c)
-        return;
-      this._resetExtensionConnection();
-      // If Playwright is also gone (already in grace or disconnected), go straight to disconnected
-      if (!this._playwrightConnection || this._state === 'grace') {
-        this._cancelGrace();
-        this._graceBuffer = [];
-        this._graceBufferBytes = 0;
-        this._state = 'disconnected';
-        this._closePlaywrightConnection(`Extension disconnected: ${reason}`);
-        return;
-      }
-      // Playwright still connected — enter extension grace
-      this._enterExtensionGrace();
-    };
+    this._extensionConnection = new ExtensionConnection(extWs);
+    this._extensionConnection.onclose = this._handleExtensionClose.bind(this);
     this._extensionConnection.onmessage = this._handleExtensionMessage.bind(this);
     this._extensionConnection.onregistryresponse = this._handleRegistryResponse.bind(this);
     this._extensionConnection.onlogmessage = (msg) => {
@@ -525,12 +495,25 @@ export class CDPRelayServer {
 
   private _handleExtensionMessage<M extends keyof ExtensionEvents>(method: M, params: ExtensionEvents[M]['params']) {
     switch (method) {
-      case 'forwardCDPEvent':
-        // Track top-frame navigations for URL (Wave 2)
-        if (params.method === 'Page.frameNavigated' && params.params?.frame && !params.params.frame.parentFrameId)
-          this._lastTabUrl = params.params.frame.url ?? null;
+      case 'forwardCDPEvent': {
+        // Route to correct client via sessionId → clientId lookup
+        let targetSession: ClientSession | undefined;
+        const targetClientId = params.sessionId ? this._sessionToClient.get(params.sessionId) : undefined;
+        if (targetClientId) {
+          targetSession = this._clients.get(targetClientId);
+        } else if (this._clients.size === 1) {
+          // Single-client fallback (backward compat)
+          targetSession = this._clients.values().next().value;
+        }
+        // Multi-client with no sessionId match: event dropped (Wave 2 adds extension-side tagging)
 
-        const sessionId = params.sessionId || this._connectedTabInfo?.sessionId;
+        // Track top-frame navigations for URL per-client
+        if (params.method === 'Page.frameNavigated' && params.params?.frame && !params.params.frame.parentFrameId) {
+          if (targetSession)
+            targetSession.tabUrl = params.params.frame.url ?? null;
+        }
+
+        const sessionId = params.sessionId || targetSession?.sessionId;
         const message: CDPResponse = {
           sessionId,
           method: params.method,
@@ -538,19 +521,22 @@ export class CDPRelayServer {
         };
         if (this._state === 'grace') {
           this._bufferEvent(JSON.stringify(message));
-        } else {
-          this._sendToPlaywright(message);
+        } else if (targetSession) {
+          this._sendToClient(targetSession.ws, message);
         }
         break;
+      }
     }
   }
 
-  private async _handlePlaywrightMessage(message: CDPCommand): Promise<void> {
-    debugLogger('← Playwright:', `${message.method} (id=${message.id})`);
+  private async _handlePlaywrightMessage(message: CDPCommand, clientId: string): Promise<void> {
+    debugLogger('← Client:', `${message.method} (id=${message.id})`);
+    const session = this._clients.get(clientId);
+    if (!session) return; // client disconnected mid-flight
     const { id, sessionId, method, params } = message;
     // Fail-fast: no extension to forward to during extension grace
     if (this._state === 'extensionGrace') {
-      this._sendToPlaywright({
+      this._sendToClient(session.ws, {
         id,
         sessionId,
         error: { code: -32000, message: 'Extension reconnecting' }
@@ -558,11 +544,11 @@ export class CDPRelayServer {
       return;
     }
     try {
-      const result = await this._handleCDPCommand(method, params, sessionId);
-      this._sendToPlaywright({ id, sessionId, result });
+      const result = await this._handleCDPCommand(method, params, sessionId, clientId);
+      this._sendToClient(session.ws, { id, sessionId, result });
     } catch (e) {
       debugLogger('Error in the extension:', e);
-      this._sendToPlaywright({
+      this._sendToClient(session.ws, {
         id,
         sessionId,
         error: { message: (e as Error).message }
@@ -570,7 +556,7 @@ export class CDPRelayServer {
     }
   }
 
-  private async _handleCDPCommand(method: string, params: any, sessionId: string | undefined): Promise<any> {
+  private async _handleCDPCommand(method: string, params: any, sessionId: string | undefined, clientId: string): Promise<any> {
     switch (method) {
       case 'Browser.getVersion': {
         return {
@@ -589,20 +575,20 @@ export class CDPRelayServer {
         // Simulate auto-attach behavior with real target info
         const attachResult = await this._extensionConnection!.send('attachToTab', { });
         const { targetInfo } = attachResult;
-        // Track tabId for extension reconnection (Wave 2)
+        const session = this._clients.get(clientId);
+        if (!session) return {}; // client disconnected mid-flight
         if (attachResult.tabId != null)
-          this._lastTabId = attachResult.tabId;
-        this._connectedTabInfo = {
-          targetInfo,
-          sessionId: `pw-tab-${this._nextSessionId++}`,
-        };
+          session.tabId = attachResult.tabId;
+        session.targetInfo = targetInfo;
+        session.sessionId = `pw-tab-${this._nextSessionId++}`;
+        this._sessionToClient.set(session.sessionId, clientId);
         debugLogger('Simulating auto-attach');
-        this._sendToPlaywright({
+        this._sendToClient(session.ws, {
           method: 'Target.attachedToTarget',
           params: {
-            sessionId: this._connectedTabInfo.sessionId,
+            sessionId: session.sessionId,
             targetInfo: {
-              ...this._connectedTabInfo.targetInfo,
+              ...targetInfo,
               attached: true,
             },
             waitingForDebugger: false
@@ -611,27 +597,30 @@ export class CDPRelayServer {
         return { };
       }
       case 'Target.getTargetInfo': {
-        return this._connectedTabInfo?.targetInfo;
+        const session = this._clients.get(clientId);
+        return session?.targetInfo;
       }
     }
-    return await this._forwardToExtension(method, params, sessionId);
+    return await this._forwardToExtension(method, params, sessionId, clientId);
   }
 
-  private async _forwardToExtension(method: string, params: any, sessionId: string | undefined): Promise<any> {
+  private async _forwardToExtension(method: string, params: any, sessionId: string | undefined, clientId: string): Promise<any> {
     if (!this._extensionConnection)
       throw new Error('Extension not connected');
     // Top level sessionId is only passed between the relay and the client.
-    if (this._connectedTabInfo?.sessionId === sessionId)
+    const session = this._clients.get(clientId);
+    if (session?.sessionId === sessionId)
       sessionId = undefined;
     return await this._extensionConnection.send('forwardCDPCommand', { sessionId, method, params });
   }
 
-  private _sendToPlaywright(message: CDPResponse): void {
-    debugLogger('→ Playwright:', `${message.method ?? `response(id=${message.id})`}`);
-    this._playwrightConnection?.send(JSON.stringify(message));
+  private _sendToClient(targetWs: WebSocket, message: CDPResponse): void {
+    debugLogger('→ Client:', `${message.method ?? `response(id=${message.id})`}`);
+    if (targetWs.readyState === ws.OPEN)
+      targetWs.send(JSON.stringify(message));
   }
 
-  // --- Sideband HTTP (Part B) ---
+  // --- Sideband HTTP ---
 
   private _installSidebandHTTP(): void {
     this._httpServer.on('request', (req, res) => {
@@ -704,14 +693,6 @@ export class CDPRelayServer {
     cb.resolve(parsed);
   }
 }
-
-type ExtensionResponse = {
-  id?: number;
-  method?: string;
-  params?: any;
-  result?: any;
-  error?: string;
-};
 
 class ExtensionConnection {
   private readonly _ws: WebSocket;
