@@ -134,6 +134,8 @@ export function decorateMCPCommand(command: Command, version: string) {
 
           let sharedBackend: BrowserServerBackend | undefined;
           let activeSessionCount = 0;
+          let backendDisposalTimer: ReturnType<typeof setTimeout> | null = null;
+          const backendGraceTTL = config.relay?.sessionGraceTTL ?? 900_000;
 
           const serverBackendFactory: mcpServer.ServerBackendFactory = {
             name: 'Playwright w/ extension',
@@ -141,6 +143,12 @@ export function decorateMCPCommand(command: Command, version: string) {
             version,
             toolSchemas: tools.map(tool => tool.schema),
             create: async (clientInfo: ClientInfo) => {
+              // Cancel pending backend disposal — a new session arrived
+              if (backendDisposalTimer) {
+                clearTimeout(backendDisposalTimer);
+                backendDisposalTimer = null;
+                serverLog('lifecycle', 'extension mode: backend disposal cancelled — new session arrived');
+              }
               if (!sharedBackend)
                 sharedBackend = new BrowserServerBackend(config, null, tools, serviceDir, browserFactory);
 
@@ -153,14 +161,23 @@ export function decorateMCPCommand(command: Command, version: string) {
             },
             disposed: async backend => {
               activeSessionCount--;
-              const proxy = backend as SharedBackendProxy;
-              await proxy.removeSessionContext();
+              // Do NOT remove the session context here — leave it alive in the
+              // shared backend so the same sessionId can reuse it when the next
+              // tool call reconnects. Context cleanup happens when the backend
+              // disposal timer fires (all sessions gone for grace TTL).
               serverLog('lifecycle', `extension mode: session disconnected (active: ${activeSessionCount})`);
 
               if (activeSessionCount === 0 && sharedBackend) {
-                serverLog('lifecycle', 'extension mode: last session gone, disposing shared backend');
-                await sharedBackend.dispose();
-                sharedBackend = undefined;
+                // Defer disposal — per-session grace may reconnect within TTL
+                serverLog('lifecycle', `extension mode: last session gone, deferring backend disposal (${backendGraceTTL}ms)`);
+                backendDisposalTimer = setTimeout(async () => {
+                  backendDisposalTimer = null;
+                  if (activeSessionCount === 0 && sharedBackend) {
+                    serverLog('lifecycle', 'extension mode: backend grace expired, disposing shared backend');
+                    await sharedBackend.dispose();
+                    sharedBackend = undefined;
+                  }
+                }, backendGraceTTL);
               }
             },
           };

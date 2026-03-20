@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+import fs from 'fs';
+import path from 'path';
 import * as playwright from '../..';
 import { debug } from '../utilsBundle';
 import { createHttpServer, startHttpServer } from '../server/utils/network';
@@ -42,13 +44,23 @@ export async function createExtensionRelay(config: FullConfig): Promise<CDPRelay
   const relay = new CDPRelayServer(
       httpServer,
       config.browser.launchOptions.channel || 'chrome',
-      { maxConcurrentClients: config.relay?.maxConcurrentClients });
+      { maxConcurrentClients: config.relay?.maxConcurrentClients, sessionGraceTTL: config.relay?.sessionGraceTTL });
   debugLogger(`CDP relay server started, extension endpoint: ${relay.extensionEndpoint()}.`);
 
   // Derive HTTP base URL from the relay's WS endpoint (ws://host:port/cdp/uuid → http://host:port)
   const cdpUrl = new URL(relay.cdpEndpoint().replace(/^ws/, 'http'));
   relayHttpUrl = `${cdpUrl.protocol}//${cdpUrl.host}`;
   debugLogger(`Relay HTTP URL for sideband: ${relayHttpUrl}`);
+
+  // Write relay port for CLI tooling (server.sh sessions)
+  const relayPort = cdpUrl.port;
+  const localDir = path.join(process.cwd(), '.local');
+  try {
+    fs.mkdirSync(localDir, { recursive: true });
+    fs.writeFileSync(path.join(localDir, 'relay.port'), relayPort, 'utf-8');
+  } catch {
+    // Best-effort — CLI diagnostics degrade gracefully without this
+  }
 
   return relay;
 }
@@ -58,9 +70,9 @@ export async function createExtensionRelay(config: FullConfig): Promise<CDPRelay
  * waits for extension connection, then connects Playwright over CDP.
  */
 export async function createExtensionBrowser(config: FullConfig, clientInfo: ClientInfo, relay: CDPRelayServer, sessionId?: string): Promise<playwright.Browser> {
-  // Only reset relay state if no other clients are connected — otherwise
-  // we'd kill their sessions. Wave 2: multi-client isolation.
-  if (relay.clientCount === 0)
+  // Only reset relay state if no clients AND no graced sessions — otherwise
+  // we'd kill their sessions or destroy tab bindings awaiting reconnect.
+  if (relay.clientCount === 0 && !relay.hasGracedSessions)
     relay.prepareForReconnect();
   await relay.ensureExtensionConnectionForMCPContext(clientInfo, /* forceNewTab */ false);
   const endpoint = sessionId

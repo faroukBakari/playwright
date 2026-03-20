@@ -14,10 +14,12 @@
  * limitations under the License.
  */
 
+import attachTab from './attachTab';
 import common from './common';
 import config from './config';
 import console from './console';
 import cookies from './cookies';
+import createTab from './createTab';
 import devtools from './devtools';
 import dialogs from './dialogs';
 import evaluate from './evaluate';
@@ -25,6 +27,7 @@ import feedback from './feedback';
 import files from './files';
 import form from './form';
 import keyboard from './keyboard';
+import listTabs from './listTabs';
 import mouse from './mouse';
 import navigate from './navigate';
 import network from './network';
@@ -47,10 +50,12 @@ import type { Tool } from './tool';
 import type { ContextConfig } from './context';
 
 export const browserTools: Tool<any>[] = [
+  ...attachTab,
   ...common,
   ...config,
   ...console,
   ...cookies,
+  ...createTab,
   ...devtools,
   ...dialogs,
   ...evaluate,
@@ -58,6 +63,7 @@ export const browserTools: Tool<any>[] = [
   ...files,
   ...form,
   ...keyboard,
+  ...listTabs,
   ...mouse,
   ...navigate,
   ...network,
