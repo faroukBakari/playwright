@@ -19,7 +19,7 @@ import type http from 'http';
 import type { RelayState } from './cdpRelay';
 
 export interface RelayHTTPDelegate {
-  activeSessions(): Array<{ sessionId: string; cdpSessionId: string | null; tab: { tabId: number; url: string; title: string } | null }>;
+  activeSessions(): Array<{ sessionId: string; cdpSessionId: string | null; tab: { tabId: number; url: string } | null }>;
   readonly state: RelayState;
   listTabs(): Promise<any>;
   createTab(sessionId: string, url?: string): Promise<any>;

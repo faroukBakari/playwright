@@ -564,6 +564,14 @@ export class CDPRelayServer {
         if (!targetSession && this._clients.size === 1)
           targetSession = this._clients.values().next().value;
 
+        // Track URL changes so /sessions reflects the current page
+        if (targetSession) {
+          if (params.method === 'Target.targetInfoChanged' && params.params?.targetInfo)
+            targetSession.targetInfo = { ...targetSession.targetInfo, ...params.params.targetInfo };
+          else if (params.method === 'Page.frameNavigated' && params.params?.frame && !params.params.frame.parentId)
+            targetSession.targetInfo = { ...targetSession.targetInfo, url: params.params.frame.url };
+        }
+
         // Map cdpSessionId back to the client's cdpSessionId for the CDP response
         const cdpSessionId = params.cdpSessionId || targetSession?.cdpSessionId || undefined;
         const message: CDPResponse = {
@@ -725,7 +733,7 @@ export class CDPRelayServer {
     const session = this._clients.get(sessionId);
     if (session) {
       session.tabId = result.tabId ?? null;
-      session.targetInfo = result.targetInfo ?? null;
+      session.targetInfo = result.targetInfo ?? { type: 'page', url: result.url ?? url ?? '', title: '' };
       session.cdpSessionId = result.cdpSessionId ?? session.cdpSessionId;
     }
     return result;
@@ -750,14 +758,13 @@ export class CDPRelayServer {
   }
 
   /** Active sessions snapshot for diagnostics. */
-  activeSessions(): Array<{ sessionId: string; cdpSessionId: string | null; tab: { tabId: number; url: string; title: string } | null }> {
+  activeSessions(): Array<{ sessionId: string; cdpSessionId: string | null; tab: { tabId: number; url: string } | null }> {
     return [...this._clients.values()].map(s => ({
       sessionId: s.sessionId,
       cdpSessionId: s.cdpSessionId,
       tab: s.tabId != null ? {
         tabId: s.tabId,
         url: s.targetInfo?.url ?? '',
-        title: s.targetInfo?.title ?? '',
       } : null,
     }));
   }
