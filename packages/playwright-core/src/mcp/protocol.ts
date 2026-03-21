@@ -16,7 +16,7 @@
 
 // Whenever the commands/events change, the version must be updated. The latest
 // extension version should be compatible with the old MCP clients.
-export const VERSION = 4;
+export const VERSION = 5;
 
 export type ExtensionCommand = {
   'attachToTab': {
@@ -52,5 +52,8 @@ export type ExtensionEvents = {
       cdpSessionId?: string,
       params?: any,
     };
+  };
+  'tabClosed': {
+    params: { sessionId: string; tabId: number };
   };
 };

@@ -70,9 +70,10 @@ export async function createExtensionRelay(config: FullConfig): Promise<CDPRelay
  * waits for extension connection, then connects Playwright over CDP.
  */
 export async function createExtensionBrowser(config: FullConfig, clientInfo: ClientInfo, relay: CDPRelayServer, sessionId?: string): Promise<playwright.Browser> {
-  // Only reset relay state if no clients AND no graced sessions — otherwise
-  // we'd kill their sessions or destroy tab bindings awaiting reconnect.
-  if (relay.clientCount === 0 && !relay.hasGracedSessions)
+  // Only reset relay state if no clients, no graced sessions, AND no dormant
+  // sessions — otherwise we'd kill their sessions, destroy tab bindings
+  // awaiting reconnect, or close the extension WS needed for dormant reattach.
+  if (relay.clientCount === 0 && !relay.hasGracedSessions && relay.dormantSessionCount === 0)
     relay.prepareForReconnect();
   await relay.ensureExtensionConnectionForMCPContext(clientInfo, /* forceNewTab */ false);
   const endpoint = sessionId

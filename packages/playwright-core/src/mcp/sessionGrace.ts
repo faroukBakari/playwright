@@ -35,13 +35,14 @@ export class SessionGraceManager {
   }
 
   /** Move a disconnected session into grace. Returns true if entered grace. */
-  enter(sessionId: string, cdpSessionId: string | null, targetInfo: any | null, tabId: number | null, onExpire: (sessionId: string) => void): boolean {
+  enter(sessionId: string, cdpSessionId: string | null, targetInfo: any | null, tabId: number | null, onExpire: (sessionId: string, graced: GracedSession) => void): boolean {
     // Only grace sessions that have a tab binding worth preserving
     if (cdpSessionId == null) return false;
     this.cancel(sessionId); // clear any existing grace for this sessionId
     const timer = setTimeout(() => {
+      const graced = this._graced.get(sessionId)!;
       this._graced.delete(sessionId);
-      onExpire(sessionId);
+      onExpire(sessionId, graced);
     }, this._ttl);
     this._graced.set(sessionId, { sessionId, cdpSessionId, targetInfo, tabId, timer });
     debugLogger(`Session ${sessionId} entered per-session grace (${this._ttl}ms)`);
@@ -69,10 +70,10 @@ export class SessionGraceManager {
   }
 
   /** Cancel all graced sessions, calling onExpire for each. */
-  cancelAll(onExpire?: (sessionId: string) => void): void {
+  cancelAll(onExpire?: (sessionId: string, graced: GracedSession) => void): void {
     for (const [sessionId, graced] of this._graced) {
       clearTimeout(graced.timer);
-      if (onExpire) onExpire(sessionId);
+      if (onExpire) onExpire(sessionId, graced);
     }
     this._graced.clear();
   }
