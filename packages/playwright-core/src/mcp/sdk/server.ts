@@ -176,6 +176,18 @@ const initializeServer = async (server: Server, factory: ServerBackendFactory, r
   return backend;
 };
 
+/**
+ * Pings the MCP client every 3s (5s timeout). On timeout → server.close()
+ * → transport closed → session disposed.
+ *
+ * DISABLED for HTTP transport in extension mode (http.ts): our bridge is a
+ * request-response proxy with no persistent SSE listener — pings always
+ * time out after 5s, killing every session prematurely. Session liveness
+ * is managed by backendGraceTTL (program.ts) instead.
+ *
+ * To re-enable: bridge would need a standalone SSE connection (GET /mcp)
+ * and JSON-RPC pong handling for server-initiated requests.
+ */
 const startHeartbeat = (server: Server) => {
   const beat = () => {
     Promise.race([

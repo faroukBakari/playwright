@@ -111,14 +111,14 @@ test('select tab', async ({ client }) => {
   });
 });
 
-test('close tab', async ({ client }) => {
+test('detach tab', async ({ client }) => {
   await createTab(client, 'Tab one', 'Body one');
   await createTab(client, 'Tab two', 'Body two');
 
   expect(await client.callTool({
     name: 'browser_tabs',
     arguments: {
-      action: 'close',
+      action: 'detach',
       index: 2,
     },
   })).toHaveResponse({

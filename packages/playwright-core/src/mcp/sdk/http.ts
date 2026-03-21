@@ -279,7 +279,11 @@ async function handleStreamable(
       onsessioninitialized: async sessionId => {
         testDebug(`create http session`);
         serverLog('session', `HTTP session created: ${sessionId} (active: ${sessions.size + 1})`);
-        await mcpServer.connect(serverBackendFactory, transport, true, sessionId);
+        // Heartbeat disabled: our bridge is a request-response HTTP proxy that
+        // doesn't handle server-initiated pings (no persistent SSE listener).
+        // The ping always times out (5s), killing the session prematurely.
+        // Session liveness is managed by backend disposal timer instead.
+        await mcpServer.connect(serverBackendFactory, transport, false, sessionId);
         sessions.set(sessionId, transport);
         // Persist for recovery after server restart.
         writeSessionState(sessionId);
@@ -337,7 +341,8 @@ async function recoverSession(
     };
 
     // Connect MCP server — backend is created lazily on first tool call.
-    await mcpServer.connect(serverBackendFactory, transport, true, sessionId);
+    // Heartbeat disabled — see comment in onsessioninitialized above.
+    await mcpServer.connect(serverBackendFactory, transport, false, sessionId);
     sessions.set(sessionId, transport);
 
     // Re-persist (same ID, new PID).

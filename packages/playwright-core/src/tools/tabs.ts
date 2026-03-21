@@ -24,10 +24,10 @@ const browserTabs = defineTool({
   schema: {
     name: 'browser_tabs',
     title: 'Manage tabs',
-    description: 'List, create, close, or select a browser tab.',
+    description: 'List, create, detach, or select a browser tab.',
     inputSchema: z.object({
-      action: z.enum(['list', 'new', 'close', 'select']).describe('Operation to perform'),
-      index: z.number().optional().describe('Tab index, used for close/select. If omitted for close, current tab is closed.'),
+      action: z.enum(['list', 'new', 'detach', 'select']).describe('Operation to perform'),
+      index: z.number().optional().describe('Tab index, used for detach/select. If omitted for detach, debugger is detached from current tab.'),
     }),
     type: 'action',
   },
@@ -42,7 +42,7 @@ const browserTabs = defineTool({
         await context.newTab();
         break;
       }
-      case 'close': {
+      case 'detach': {
         await context.closeTab(params.index);
         break;
       }

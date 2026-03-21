@@ -402,13 +402,13 @@ const tabNew = declareCommand({
 
 const tabClose = declareCommand({
   name: 'tab-close',
-  description: 'Close a browser tab',
+  description: 'Detach debugger from a browser tab',
   category: 'tabs',
   args: z.object({
-    index: numberArg.optional().describe('Tab index. If omitted, current tab is closed.'),
+    index: numberArg.optional().describe('Tab index. If omitted, debugger is detached from current tab.'),
   }),
   toolName: 'browser_tabs',
-  toolParams: ({ index }) => ({ action: 'close', index }),
+  toolParams: ({ index }) => ({ action: 'detach', index }),
 });
 
 const tabSelect = declareCommand({

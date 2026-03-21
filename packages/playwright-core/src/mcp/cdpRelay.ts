@@ -645,6 +645,25 @@ export class CDPRelayServer {
         this._dormantSessions.delete(closedSessionId);
         this._sessionGrace.cancel(closedSessionId);
         debugLogger(`tabClosed: session ${closedSessionId} tab ${closedTabId} cleaned up`);
+        serverLog('lifecycle', `tabClosed: session ${closedSessionId} tab ${closedTabId} — cleaned up dormant/grace`);
+
+        // Update active session state if the closed tab belongs to it
+        const activeSession = this._clients.get(closedSessionId);
+        if (activeSession && activeSession.tabId === closedTabId) {
+          activeSession.tabId = null;
+          activeSession.targetInfo = null;
+          serverLog('lifecycle', `tabClosed: active session ${closedSessionId} lost tab ${closedTabId}`);
+        } else {
+          // Fallback: find any session owning this tab by tabId
+          for (const [sid, s] of this._clients) {
+            if (s.tabId === closedTabId) {
+              s.tabId = null;
+              s.targetInfo = null;
+              serverLog('lifecycle', `tabClosed: active session ${sid} lost tab ${closedTabId} (by tabId match)`);
+              break;
+            }
+          }
+        }
         break;
       }
     }
