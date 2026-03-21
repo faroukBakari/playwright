@@ -99,6 +99,9 @@ export class ExtensionConnection {
       this.onlogmessage?.(object);
       return;
     }
+    // Silently consume keepalive — the traffic itself keeps the MV3 SW alive
+    if (typeof object.type === 'string' && object.type === 'keepalive')
+      return;
     if (object.id && this._callbacks.has(object.id)) {
       const callback = this._callbacks.get(object.id)!;
       this._callbacks.delete(object.id);

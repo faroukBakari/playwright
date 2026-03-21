@@ -142,6 +142,8 @@ export class Context {
   private _disposables: Disposable[] = [];
 
   private _runningToolName: string | undefined;
+  private _firstPageResolve: (() => void) | undefined;
+  private _firstPagePromise: Promise<void> | undefined;
 
   constructor(browserContext: playwright.BrowserContext, options: ContextOptions) {
     this.config = options.config;
@@ -150,6 +152,9 @@ export class Context {
     this.options = options;
     this._rawBrowserContext = browserContext;
     testDebug('create context');
+    this._firstPagePromise = new Promise<void>(resolve => {
+      this._firstPageResolve = resolve;
+    });
   }
 
   async dispose() {
@@ -193,8 +198,26 @@ export class Context {
 
   async ensureTab(): Promise<Tab> {
     const browserContext = await this.ensureBrowserContext();
-    if (!this._currentTab)
-      await browserContext.newPage();
+    if (!this._currentTab) {
+      if (relayHttpUrl) {
+        // Extension mode with deferred tab creation: request a tab via sideband.
+        // The relay sends Target.attachedToTarget which triggers _onPageCreated.
+        await fetch(`${relayHttpUrl}/tabs/create`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionId: this.id }),
+          signal: AbortSignal.timeout(15000),
+        });
+        // Wait for the page to materialize via CDP event
+        await Promise.race([
+          this._firstPagePromise,
+          new Promise<void>((_, reject) =>
+            setTimeout(() => reject(new Error('Deferred tab creation: timed out waiting for page')), 15000)),
+        ]);
+      } else {
+        await browserContext.newPage();
+      }
+    }
     return this._currentTab!;
   }
 
@@ -243,6 +266,10 @@ export class Context {
   }
 
   private _onPageCreated(page: playwright.Page) {
+    if (this._firstPageResolve) {
+      this._firstPageResolve();
+      this._firstPageResolve = undefined;
+    }
     const tab = new Tab(this, page, tab => this._onPageClosed(tab));
     this._tabs.push(tab);
     if (!this._currentTab)

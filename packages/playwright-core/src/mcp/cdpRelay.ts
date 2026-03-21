@@ -733,35 +733,29 @@ export class CDPRelayServer {
           }
         }
 
-        // Normal path: ask extension for a new tab (pass dormant tabId if present)
+        // Check if session already has a tab binding (from dormant recovery
+        // or prior sideband attachTab call).
         const preSession = this._clients.get(sessionId);
-        const attachParams: { sessionId: string; tabId?: number } = { sessionId };
-        if (preSession?.tabId != null)
-          attachParams.tabId = preSession.tabId;
-        const attachResult = await this._extensionConnection!.send('attachToTab', attachParams, { timeout: this._extensionCommandTimeout });
-        const { targetInfo, bumpedSessionId } = attachResult;
-        const session = this._clients.get(sessionId);
-        if (!session) return {}; // client disconnected mid-flight
+        if (preSession?.tabId != null) {
+          // Re-attach to the known tab (dormant recovery path)
+          const attachResult = await this._extensionConnection!.send('attachToTab', { sessionId, tabId: preSession.tabId } as any, { timeout: this._extensionCommandTimeout });
+          const session = this._clients.get(sessionId);
+          if (!session) return {};
+          if (attachResult.bumpedSessionId)
+            this._notifyBumpedClient(attachResult.bumpedSessionId, sessionId, attachResult.tabId);
+          session.targetInfo = attachResult.targetInfo;
+          session.tabId = attachResult.tabId ?? preSession.tabId;
+          this._sendTabAttached(session);
+          return {};
+        }
 
-        // Notify the bumped client that it lost its tab
-        if (bumpedSessionId)
-          this._notifyBumpedClient(bumpedSessionId, sessionId, attachResult.tabId);
-
-        session.targetInfo = targetInfo;
-        session.tabId = attachResult.tabId ?? null;
-        session.cdpSessionId = `session-${sessionId}`;
-        debugLogger('Simulating auto-attach');
-        this._sendToClient(session.ws, {
-          method: 'Target.attachedToTarget',
-          params: {
-            sessionId: session.cdpSessionId,
-            targetInfo: {
-              ...targetInfo,
-              attached: true,
-            },
-            waitingForDebugger: false
-          }
-        });
+        // Deferred tab creation: new session with no tab binding.
+        // Don't create a tab now — let the first tool that needs a tab
+        // trigger creation via ensureTab() → sideband POST /tabs/create.
+        // This gives agents a chance to list tabs and attach to existing
+        // ones (e.g., dormant tabs from a previous session) before any
+        // default about:blank tab is created.
+        debugLogger(`Deferring tab creation for new session ${sessionId}`);
         return { };
       }
       case 'Target.getTargetInfo': {
@@ -783,6 +777,26 @@ export class CDPRelayServer {
     return await this._extensionConnection.send('forwardCDPCommand', { sessionId, cdpSessionId, method, params });
   }
 
+  /**
+   * Send Target.attachedToTarget event to a Playwright client, notifying it
+   * that a tab is now available. Called when a tab is assigned to a session
+   * that previously had none (deferred tab creation).
+   */
+  private _sendTabAttached(session: ClientSession): void {
+    if (!session.ws || !session.targetInfo)
+      return;
+    session.cdpSessionId = session.cdpSessionId ?? `session-${session.sessionId}`;
+    debugLogger(`Sending Target.attachedToTarget for session ${session.sessionId} (tab ${session.tabId})`);
+    this._sendToClient(session.ws, {
+      method: 'Target.attachedToTarget',
+      params: {
+        sessionId: session.cdpSessionId,
+        targetInfo: { ...session.targetInfo, attached: true },
+        waitingForDebugger: false,
+      }
+    });
+  }
+
   private _notifyBumpedClient(bumpedSessionId: string, newSessionId: string, tabId: number): void {
     const bumpedSession = this._clients.get(bumpedSessionId);
     if (bumpedSession) {
@@ -791,6 +805,7 @@ export class CDPRelayServer {
         method: 'Target.detachedFromTarget',
         params: {
           sessionId: bumpedSession.cdpSessionId,
+          targetId: bumpedSession.targetInfo?.targetId,
           reason: `Session displaced by ${newSessionId} on tab ${tabId}`,
         }
       });
@@ -819,6 +834,9 @@ export class CDPRelayServer {
       session.tabId = result.tabId ?? null;
       session.targetInfo = result.targetInfo ?? { type: 'page', url: result.url ?? url ?? '', title: '' };
       session.cdpSessionId = result.cdpSessionId ?? session.cdpSessionId;
+      // Notify Playwright about the new tab — needed for deferred tab creation
+      // where Target.setAutoAttach didn't create a tab initially.
+      this._sendTabAttached(session);
     }
     return result;
   }
@@ -837,6 +855,9 @@ export class CDPRelayServer {
       session.targetInfo = result.targetInfo ?? null;
       if (result.cdpSessionId)
         session.cdpSessionId = result.cdpSessionId;
+      // Notify Playwright about the attached tab — needed for deferred tab creation
+      // where Target.setAutoAttach didn't create a tab initially.
+      this._sendTabAttached(session);
     }
     return result;
   }
