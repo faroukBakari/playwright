@@ -23,7 +23,7 @@ import { dotenv } from '../utilsBundle';
 import { configFromIniFile } from './configIni';
 
 import type * as playwright from '../..';
-import type { Config, ToolCapability } from './config.d';
+import type { Config, ToolCapability, TimeoutMatrix } from './config.d';
 
 async function fileExistsAsync(resolved: string) {
   try { return (await fs.promises.stat(resolved)).isFile(); } catch { return false; }
@@ -122,7 +122,9 @@ export type FullConfig = Config & {
 };
 
 export async function resolveConfig(config: Config): Promise<FullConfig> {
-  return mergeConfig(defaultConfig, config);
+  const result = mergeConfig(defaultConfig, config);
+  result.timeoutMatrix = resolveTimeoutMatrix(result);
+  return result;
 }
 
 export async function resolveCLIConfig(cliOptions: CLIOptions): Promise<FullConfig> {
@@ -137,6 +139,7 @@ export async function resolveCLIConfig(cliOptions: CLIOptions): Promise<FullConf
   result = mergeConfig(result, cliOverrides);
   result.configFile = configFile;
   await validateConfig(result);
+  result.timeoutMatrix = resolveTimeoutMatrix(result);
   return result;
 }
 
@@ -460,6 +463,7 @@ export function mergeConfig(base: FullConfig, overrides: Config): FullConfig {
       ...pickDefined(base.relay),
       ...pickDefined(overrides.relay),
     },
+    timeoutMatrix: overrides.timeoutMatrix ?? base.timeoutMatrix,
   } as FullConfig;
 }
 
@@ -533,4 +537,63 @@ function envToBoolean(value: string | undefined): boolean | undefined {
 
 function envToString(value: string | undefined): string | undefined {
   return value ? value.trim() : undefined;
+}
+
+/**
+ * Resolve the unified timeout matrix from config. If the config provides an
+ * explicit `timeoutMatrix`, use it directly. Otherwise, derive the matrix from
+ * the legacy split config keys (timeouts, toolTimeouts, performance, relay).
+ */
+export function resolveTimeoutMatrix(config: FullConfig): TimeoutMatrix {
+  if (config.timeoutMatrix)
+    return config.timeoutMatrix;
+  return {
+    budget: {
+      default: config.toolTimeouts?.default ?? 5000,
+      navigate: config.toolTimeouts?.navigate ?? 15000,
+      runCode: config.toolTimeouts?.runCode ?? 30000,
+    },
+    playwright: {
+      action: config.timeouts?.action ?? 5000,
+      navigation: config.timeouts?.navigation ?? 60000,
+      expect: config.timeouts?.expect ?? 5000,
+    },
+    settle: {
+      postActionDelay: config.performance?.postActionDelay ?? 100,
+      navigationLoad: config.performance?.navigationLoadTimeout ?? 5000,
+      networkRace: config.performance?.networkRaceTimeout ?? 3000,
+      postSettlement: config.performance?.postSettlementDelay ?? 10,
+    },
+    infrastructure: {
+      bridgeBuffer: 5000,
+      extensionConnect: 5000,
+      extensionCommand: 10000,
+      sessionGrace: config.relay?.sessionGraceTTL ?? 15000,
+    },
+  };
+}
+
+/**
+ * Validate timeout cascade constraints. Returns an array of warning messages
+ * for any violations. Phase 0: advisory only (no throws). Phase 5 will promote
+ * violations to errors for explicit timeoutMatrix configs.
+ */
+export function validateTimeoutCascade(matrix: TimeoutMatrix): string[] {
+  const warnings: string[] = [];
+  const settleMax = matrix.settle.postActionDelay + matrix.settle.navigationLoad +
+    matrix.settle.networkRace + matrix.settle.postSettlement;
+
+  if (matrix.budget.default < matrix.playwright.action + settleMax)
+    warnings.push(`budget.default (${matrix.budget.default}ms) < playwright.action (${matrix.playwright.action}ms) + settle overhead (${settleMax}ms) = ${matrix.playwright.action + settleMax}ms. Input tools may structurally timeout.`);
+
+  if (matrix.budget.navigate < matrix.playwright.navigation + 2000)
+    warnings.push(`budget.navigate (${matrix.budget.navigate}ms) < playwright.navigation (${matrix.playwright.navigation}ms) + 2000ms buffer = ${matrix.playwright.navigation + 2000}ms.`);
+
+  if (matrix.budget.runCode < matrix.budget.default + 25000)
+    warnings.push(`budget.runCode (${matrix.budget.runCode}ms) < budget.default (${matrix.budget.default}ms) + 25000ms = ${matrix.budget.default + 25000}ms.`);
+
+  if (matrix.infrastructure.bridgeBuffer < 3000)
+    warnings.push(`infrastructure.bridgeBuffer (${matrix.infrastructure.bridgeBuffer}ms) < 3000ms minimum.`);
+
+  return warnings;
 }

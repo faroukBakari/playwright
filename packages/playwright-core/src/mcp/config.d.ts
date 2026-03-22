@@ -287,6 +287,14 @@ export type Config = {
     sessionGraceTTL?: number;
   };
 
+  /**
+   * Unified timeout matrix for deadline propagation framework.
+   * When provided, governs all timeout layers through a single cascading budget.
+   * If omitted, the matrix is derived from timeouts + toolTimeouts + performance
+   * at startup (backward compatibility).
+   */
+  timeoutMatrix?: TimeoutMatrix;
+
   performance?: {
     /** Post-action request collection window (ms). Default: 100 */
     postActionDelay?: number;
@@ -310,5 +318,53 @@ export type Config = {
     waitDefaultTimeout?: number;
     /** Maximum allowed wait timeout in ms (default 30000). */
     waitMaxTimeout?: number;
+  };
+};
+
+/**
+ * Unified timeout matrix — deadline propagation framework.
+ * Defines all timeout layers and their cascade relationships.
+ * See docs/timeout-framework.md for architecture and rationale.
+ */
+export type TimeoutMatrix = {
+  /** Per-call budget: total time allocated for a tool invocation. */
+  budget: {
+    /** Default budget for readOnly/input/action/assertion tools (ms). */
+    default: number;
+    /** Budget for navigation tools (ms). */
+    navigate: number;
+    /** Budget for browser_run_code (ms). */
+    runCode: number;
+  };
+  /** Playwright inner timeouts — ceilings within the budget. */
+  playwright: {
+    /** Locator action timeout (ms). */
+    action: number;
+    /** Page navigation timeout (ms). */
+    navigation: number;
+    /** Expect/assertion timeout (ms). */
+    expect: number;
+  };
+  /** Post-action settle phase timeouts. */
+  settle: {
+    /** Post-action request collection window (ms). */
+    postActionDelay: number;
+    /** Navigation load state timeout (ms). */
+    navigationLoad: number;
+    /** Network race timeout (ms). */
+    networkRace: number;
+    /** Post-settlement cooldown (ms). */
+    postSettlement: number;
+  };
+  /** Infrastructure-level timeouts (bridge, CDP, extension). */
+  infrastructure: {
+    /** Bridge HTTP timeout buffer above max budget (ms). */
+    bridgeBuffer: number;
+    /** Extension initial connection timeout (ms). */
+    extensionConnect: number;
+    /** Extension CDP command timeout (ms). */
+    extensionCommand: number;
+    /** Per-session grace TTL (ms). */
+    sessionGrace: number;
   };
 };
