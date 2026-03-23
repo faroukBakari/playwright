@@ -129,6 +129,11 @@ export class CDPRelayServer {
   private _playwrightReconnectCount = 0;
   private readonly _maxPlaywrightReconnects = 3;
 
+  // Cached download behavior — applied to new tabs on attach.
+  // downloadPath intentionally omitted: WSL paths can't be resolved by Chrome on Windows.
+  // eventsEnabled ensures Page-level download events fire for relay translation.
+  private _downloadBehavior: { behavior: string; eventsEnabled: boolean } | null = null;
+
   // Sideband HTTP registry (extracted)
   private _sidebandRegistry: SidebandRegistry;
 
@@ -625,11 +630,29 @@ export class CDPRelayServer {
             targetSession.targetInfo = { ...targetSession.targetInfo, url: fwdParams.params.frame.url };
         }
 
-        // Map cdpSessionId back to the client's cdpSessionId for the CDP response
-        const cdpSessionId = fwdParams.cdpSessionId || targetSession?.cdpSessionId || undefined;
+        // Translate Page-level download events to Browser-level.
+        // Extension's chrome.debugger emits Page.downloadWillBegin/Progress (tab-scoped),
+        // but Playwright listens on rootSession for Browser.downloadWillBegin/Progress
+        // (crBrowser.ts:107-108). Rename and strip sessionId so crConnection.ts:80
+        // routes to rootSession (id='').
+        let eventMethod = fwdParams.method;
+        let eventSessionId: string | undefined;
+        if (fwdParams.method === 'Page.downloadWillBegin') {
+          eventMethod = 'Browser.downloadWillBegin';
+          eventSessionId = undefined;
+          debugLogger('Download event translation: Page.downloadWillBegin → Browser.downloadWillBegin (rootSession)');
+        } else if (fwdParams.method === 'Page.downloadProgress') {
+          eventMethod = 'Browser.downloadProgress';
+          eventSessionId = undefined;
+          debugLogger('Download event translation: Page.downloadProgress → Browser.downloadProgress (rootSession)');
+        } else {
+          // Map cdpSessionId back to the client's cdpSessionId for the CDP response
+          eventSessionId = fwdParams.cdpSessionId || targetSession?.cdpSessionId || undefined;
+        }
+
         const message: CDPResponse = {
-          sessionId: cdpSessionId,
-          method: fwdParams.method,
+          sessionId: eventSessionId,
+          method: eventMethod,
           params: fwdParams.params
         };
         if (this._state === 'grace') {
@@ -707,7 +730,25 @@ export class CDPRelayServer {
         };
       }
       case 'Browser.setDownloadBehavior': {
-        return { };
+        // Translate browser-level → page-level (chrome.debugger is tab-scoped).
+        // Page.setDownloadBehavior is deprecated but functional with chrome.debugger.
+        // Strip downloadPath (WSL path, Chrome can't resolve it) and browserContextId
+        // (not relevant for Page domain). Add eventsEnabled to ensure Page-level
+        // download events fire (Page.downloadWillBegin/Progress), which the relay
+        // translates to Browser.downloadWillBegin/Progress above.
+        const pageParams: Record<string, any> = {
+          behavior: params.behavior,
+          eventsEnabled: true,
+        };
+        this._downloadBehavior = { ...pageParams };
+        for (const client of this._clients.values()) {
+          if (client.tabId != null && client.cdpSessionId) {
+            this._forwardToExtension('Page.setDownloadBehavior', pageParams, client.cdpSessionId, client.sessionId).catch(e => {
+              debugLogger(`Failed to set download behavior for session ${client.sessionId}: ${e.message}`);
+            });
+          }
+        }
+        return {};
       }
       case 'Target.setAutoAttach': {
         // Forward child session handling.
@@ -795,6 +836,12 @@ export class CDPRelayServer {
         waitingForDebugger: false,
       }
     });
+    // Forward cached download behavior to the newly attached tab
+    if (this._downloadBehavior && session.tabId != null && session.cdpSessionId) {
+      this._forwardToExtension('Page.setDownloadBehavior', this._downloadBehavior, session.cdpSessionId, session.sessionId).catch(e => {
+        debugLogger(`Failed to set download behavior on new tab for session ${session.sessionId}: ${e.message}`);
+      });
+    }
   }
 
   private _notifyBumpedClient(bumpedSessionId: string, newSessionId: string, tabId: number): void {
