@@ -58,6 +58,7 @@ export type CLIOptions = {
   imageResponses?: 'allow' | 'omit';
   sandbox?: boolean;
   outputDir?: string;
+  downloadsPath?: string;
   outputMode?: 'file' | 'stdout';
   port?: number;
   proxyBypass?: string;
@@ -271,6 +272,7 @@ export function configFromCLIOptions(cliOptions: CLIOptions): Config & { configF
     snapshot: cliOptions.snapshotMode ? { mode: cliOptions.snapshotMode } : undefined,
     outputMode: cliOptions.outputMode,
     outputDir: cliOptions.outputDir,
+    downloadsPath: cliOptions.downloadsPath,
     imageResponses: cliOptions.imageResponses,
     testIdAttribute: cliOptions.testIdAttribute,
     timeouts: {
@@ -315,6 +317,7 @@ export function configFromEnv(): Config & { configFile?: string } {
     options.imageResponses = enumParser<'allow' | 'omit'>('--image-responses', ['allow', 'omit'], process.env.PLAYWRIGHT_MCP_IMAGE_RESPONSES);
   options.sandbox = envToBoolean(process.env.PLAYWRIGHT_MCP_SANDBOX);
   options.outputDir = envToString(process.env.PLAYWRIGHT_MCP_OUTPUT_DIR);
+  options.downloadsPath = envToString(process.env.PLAYWRIGHT_MCP_DOWNLOADS_PATH);
   options.port = numberParser(process.env.PLAYWRIGHT_MCP_PORT);
   options.proxyBypass = envToString(process.env.PLAYWRIGHT_MCP_PROXY_BYPASS);
   options.proxyServer = envToString(process.env.PLAYWRIGHT_MCP_PROXY_SERVER);

@@ -155,6 +155,14 @@ export type Config = {
   outputDir?: string;
 
   /**
+   * The directory where the browser process saves downloaded files.
+   * Must be a path the browser can access (e.g., a Windows path when
+   * Chrome runs on Windows). The server passes this value opaquely
+   * to the browser — no format conversion is applied.
+   */
+  downloadsPath?: string;
+
+  /**
    * Whether to save snapshots, console messages, network logs and other session logs to a file or to the standard output. Defaults to "stdout".
    */
   outputMode?: 'file' | 'stdout';

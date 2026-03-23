@@ -55,6 +55,7 @@ export interface ClientSession {
   cdpSessionId: string | null;    // Derived 'session-{sessionId}', null before Target.setAutoAttach
   targetInfo: any | null;         // CDP TargetInfo from extension
   tabId: number | null;           // Chrome tab ID, set on attach
+  downloadBehavior: { behavior: string; downloadPath?: string } | null; // Stored from Browser.setDownloadBehavior for deferred Page-level send
 }
 
 interface DormantSession {
@@ -72,6 +73,7 @@ export interface CDPRelayOptions {
   graceBufferMaxBytes?: number;    // default: 2MB
   maxConcurrentClients?: number;   // default: 4
   sessionGraceTTL?: number;        // default: 30_000
+  downloadsPath?: string;          // Browser-side download directory (e.g., Windows path when Chrome runs on Windows)
 }
 
 const DEFAULT_GRACE_TTL = 5_000;
@@ -129,6 +131,9 @@ export class CDPRelayServer {
   private _playwrightReconnectCount = 0;
   private readonly _maxPlaywrightReconnects = 3;
 
+  // Download path override — browser-side path for Browser.setDownloadBehavior
+  private readonly _downloadsPath: string | undefined;
+
   // Sideband HTTP registry (extracted)
   private _sidebandRegistry: SidebandRegistry;
 
@@ -139,6 +144,7 @@ export class CDPRelayServer {
     this._extensionCommandTimeout = options?.extensionCommandTimeout ?? DEFAULT_EXTENSION_COMMAND_TIMEOUT;
     this._graceBufferMaxBytes = options?.graceBufferMaxBytes ?? DEFAULT_GRACE_BUFFER_MAX_BYTES;
     this._maxConcurrentClients = options?.maxConcurrentClients ?? DEFAULT_MAX_CONCURRENT_CLIENTS;
+    this._downloadsPath = options?.downloadsPath;
     this._sessionGrace = new SessionGraceManager(options?.sessionGraceTTL ?? DEFAULT_SESSION_GRACE_TTL);
 
     const uuid = crypto.randomUUID();
@@ -330,6 +336,7 @@ export class CDPRelayServer {
       cdpSessionId: null,
       targetInfo: null,
       tabId: null,
+      downloadBehavior: null,
     };
     this._clients.set(sessionId, session);
     this._state = 'connected';
@@ -625,6 +632,9 @@ export class CDPRelayServer {
             targetSession.targetInfo = { ...targetSession.targetInfo, url: fwdParams.params.frame.url };
         }
 
+        if (fwdParams.method === 'Page.downloadWillBegin' || fwdParams.method === 'Page.downloadProgress')
+          serverLog('download', `CDP event ${fwdParams.method}: sessionId=${targetSession?.sessionId || '(unknown)'}, ${JSON.stringify(fwdParams.params)}`);
+
         // Map cdpSessionId back to the client's cdpSessionId for the CDP response
         const cdpSessionId = fwdParams.cdpSessionId || targetSession?.cdpSessionId || undefined;
         const message: CDPResponse = {
@@ -707,7 +717,14 @@ export class CDPRelayServer {
         };
       }
       case 'Browser.setDownloadBehavior': {
-        return { };
+        // Browser-domain commands can't go through tab-scoped chrome.debugger.
+        // Store the params and send Page.setDownloadBehavior after tab attachment.
+        const downloadPath = this._downloadsPath || params?.downloadPath;
+        serverLog('download', `Browser.setDownloadBehavior intercepted: behavior=${params?.behavior}, incomingPath=${params?.downloadPath || '(none)'}, overridePath=${this._downloadsPath || '(none)'}, effectivePath=${downloadPath || '(none)'}, sessionId=${sessionId}`);
+        const session = this._clients.get(sessionId);
+        if (session)
+          session.downloadBehavior = { behavior: params?.behavior, downloadPath };
+        return {};
       }
       case 'Target.setAutoAttach': {
         // Forward child session handling.
@@ -795,6 +812,21 @@ export class CDPRelayServer {
         waitingForDebugger: false,
       }
     });
+    // Send deferred Page.setDownloadBehavior now that we have an attached tab.
+    // Browser.setDownloadBehavior can't go through tab-scoped chrome.debugger,
+    // so we convert to the Page-domain equivalent after tab attachment.
+    if (session.downloadBehavior && this._extensionConnection) {
+      const { behavior, downloadPath } = session.downloadBehavior;
+      serverLog('download', `Sending Page.setDownloadBehavior: behavior=${behavior}, downloadPath=${downloadPath || '(none)'}, sessionId=${session.sessionId}`);
+      this._extensionConnection.send('forwardCDPCommand', {
+        sessionId: session.sessionId,
+        method: 'Page.setDownloadBehavior',
+        params: { behavior, downloadPath },
+      }).then(
+        result => serverLog('download', `Page.setDownloadBehavior OK: sessionId=${session.sessionId}, result=${JSON.stringify(result)}`),
+        err => serverLog('download', `Page.setDownloadBehavior FAILED: sessionId=${session.sessionId}, error=${err.message}`)
+      );
+    }
   }
 
   private _notifyBumpedClient(bumpedSessionId: string, newSessionId: string, tabId: number): void {
