@@ -192,10 +192,6 @@ export class Tab extends EventEmitter<TabEventsInterface> {
     this._modalStates = this._modalStates.filter(state => state !== modalState);
   }
 
-  downloads(): Download[] {
-    return this._downloads;
-  }
-
   private _dialogShown(dialog: playwright.Dialog) {
     this.setModalState({
       type: 'dialog',
