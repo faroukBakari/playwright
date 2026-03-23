@@ -740,7 +740,7 @@ export class CDPRelayServer {
           behavior: params.behavior,
           eventsEnabled: true,
         };
-        this._downloadBehavior = { ...pageParams };
+        this._downloadBehavior = { behavior: pageParams.behavior as string, eventsEnabled: true };
         for (const client of this._clients.values()) {
           if (client.tabId != null && client.cdpSessionId) {
             this._forwardToExtension('Page.setDownloadBehavior', pageParams, client.cdpSessionId, client.sessionId).catch(e => {
@@ -954,4 +954,10 @@ export class CDPRelayServer {
       targetWs.send(JSON.stringify(message));
   }
 
+}
+
+function windowsToWslPath(winPath: string): string {
+  return winPath
+      .replace(/^([A-Za-z]):\\/, (_: string, d: string) => `/mnt/${d.toLowerCase()}/`)
+      .replace(/\\/g, '/');
 }

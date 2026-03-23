@@ -19,6 +19,7 @@ import fs from 'fs';
 import { z } from '../mcpBundle';
 import { defineTabTool } from './tool';
 
+
 export const downloadList = defineTabTool({
   capability: 'core',
 
@@ -62,7 +63,16 @@ export const downloadFile = defineTabTool({
   },
 
   handle: async (tab, params, response) => {
-    await tab.navigate(params.url);
+    try {
+      await tab.navigate(params.url);
+    } catch (e: unknown) {
+      // Navigation to a download URL throws "Download is starting" because
+      // the browser interrupts the navigation to handle the file download.
+      // This is expected — swallow it and check for the download below.
+      const msg = e instanceof Error ? e.message : String(e);
+      if (!msg.includes('Download is starting'))
+        throw e;
+    }
 
     const downloads = tab.downloads();
     const latest = downloads[downloads.length - 1];
@@ -71,7 +81,6 @@ export const downloadFile = defineTabTool({
       return;
     }
 
-    // Wait for download to finish if not already
     if (!latest.finished)
       await latest.download.path();
 
