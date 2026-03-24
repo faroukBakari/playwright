@@ -119,7 +119,7 @@ const navigateAndWait = defineTool({
       waitForText: z.string().optional().describe('Text to wait for after navigation'),
       waitForSelector: z.string().optional().describe('CSS selector to wait for after navigation'),
       waitForUrl: z.string().optional().describe('URL glob pattern to wait for (e.g. after redirects)'),
-      timeout: z.number().optional().describe('Wait timeout in seconds (default 3)'),
+      timeout: z.coerce.number().optional().describe('Wait timeout in seconds (default 3)'),
       ...snapshotOptionsSchema.shape,
     }),
     type: 'action',

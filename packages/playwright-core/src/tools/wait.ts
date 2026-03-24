@@ -315,7 +315,7 @@ On timeout, returns current page state — you decide the next step.`,
         .describe('JavaScript expression evaluated in browser. Must return truthy when done. Last resort — prefer text or selector.'),
       networkIdle: z.boolean().optional()
         .describe('Wait until no network requests for 500ms. May hang on analytics-heavy sites.'),
-      timeout: z.number().optional().describe('Override timeout in seconds (default 3, max configurable via waitMaxTimeout)'),
+      timeout: z.coerce.number().optional().describe('Override timeout in seconds (default 3, max configurable via waitMaxTimeout)'),
       ...snapshotOptionsSchema.shape,
     }),
     type: 'assertion',

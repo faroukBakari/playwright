@@ -27,7 +27,7 @@ const downloadFile = defineTool({
     inputSchema: z.object({
       url: z.string().describe('URL of the file to download'),
       filename: z.string().optional().describe('Suggested filename (relative to download directory). Chrome may modify it to avoid conflicts.'),
-      timeout: z.number().optional().describe('Download timeout in seconds. Default: 30. Increase for large files.'),
+      timeout: z.coerce.number().optional().describe('Download timeout in seconds. Default: 30. Increase for large files.'),
     }),
     type: 'action',
   },

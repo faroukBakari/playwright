@@ -254,11 +254,13 @@ export class BrowserServerBackend implements ServerBackend {
           const toolPromise = tool.handle(context, parsedArguments, response);
           let timedOut = false;
           let timeoutId: ReturnType<typeof setTimeout>;
+          const safetyNetMs = timeoutMs + 500;
           const timeoutPromise = new Promise<never>((_, reject) => {
             timeoutId = setTimeout(() => {
               timedOut = true;
-              reject(new Error(`Tool "${name}" timed out after ${timeoutMs}ms`));
-            }, timeoutMs);
+              serverLog('warn', `[${name}] Safety-net timeout fired after ${safetyNetMs}ms (inner deadline was ${timeoutMs}ms). Inner deadline propagation may have failed — check tool handler.`);
+              reject(new Error(`Tool "${name}" timed out after ${timeoutMs}ms (safety-net at ${safetyNetMs}ms — inner deadline should have fired first)`));
+            }, safetyNetMs);
           });
 
           try {
