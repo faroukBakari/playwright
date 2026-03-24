@@ -104,9 +104,9 @@ export class Tab extends EventEmitter<TabEventsInterface> {
   private _recentEventEntries: EventEntry[] = [];
   private _consoleLog: LogFile;
   private _disposables: Disposable[];
-  readonly actionTimeoutOptions: { timeout?: number; };
-  readonly navigationTimeoutOptions: { timeout?: number; };
-  readonly expectTimeoutOptions: { timeout?: number; };
+  private _actionTimeoutCeiling: number | undefined;
+  private _navigationTimeoutCeiling: number | undefined;
+  private _expectTimeoutCeiling: number | undefined;
 
   constructor(context: Context, page: playwright.Page, onPageClose: (tab: Tab) => void) {
     super();
@@ -138,14 +138,37 @@ export class Tab extends EventEmitter<TabEventsInterface> {
     const wallTime = Date.now();
     this._consoleLog = new LogFile(this.context, wallTime, 'console', 'Console');
     this._initializedPromise = this._initialize();
-    this.actionTimeoutOptions = { timeout: context.config.timeouts?.action };
-    this.navigationTimeoutOptions = { timeout: context.config.timeouts?.navigation };
-    this.expectTimeoutOptions = { timeout: context.config.timeouts?.expect };
+    this._actionTimeoutCeiling = context.config.timeouts?.action;
+    this._navigationTimeoutCeiling = context.config.timeouts?.navigation;
+    this._expectTimeoutCeiling = context.config.timeouts?.expect;
   }
 
   async dispose() {
     await disposeAll(this._disposables);
     this._consoleLog.stop();
+  }
+
+  get actionTimeoutOptions(): { timeout?: number } {
+    return { timeout: this._minTimeout(this._actionTimeoutCeiling) };
+  }
+
+  get navigationTimeoutOptions(): { timeout?: number } {
+    return { timeout: this._minTimeout(this._navigationTimeoutCeiling) };
+  }
+
+  get expectTimeoutOptions(): { timeout?: number } {
+    return { timeout: this._minTimeout(this._expectTimeoutCeiling) };
+  }
+
+  private _minTimeout(ceiling: number | undefined): number | undefined {
+    const remaining = this.context.remainingBudget();
+    if (ceiling === undefined && remaining === Infinity)
+      return undefined;
+    if (ceiling === undefined)
+      return remaining;
+    if (remaining === Infinity)
+      return ceiling;
+    return Math.min(ceiling, remaining);
   }
 
   static forPage(page: playwright.Page): Tab | undefined {

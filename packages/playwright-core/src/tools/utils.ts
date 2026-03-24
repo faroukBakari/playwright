@@ -22,6 +22,13 @@ export async function waitForCompletion<R>(tab: Tab, callback: () => Promise<R>)
   const perf = tab.context.perfLog;
   const perfConfig = tab.context.config.performance;
 
+  const cappedTimeout = (configured: number): number => {
+    const remaining = tab.context.remainingBudget();
+    if (remaining === Infinity)
+      return configured;
+    return Math.min(configured, Math.max(0, remaining));
+  };
+
   const requestListener = (request: playwright.Request) => requests.push(request);
   const disposeListeners = () => {
     tab.page.off('request', requestListener);
@@ -35,7 +42,7 @@ export async function waitForCompletion<R>(tab: Tab, callback: () => Promise<R>)
     await perf.timeAsync({
       phase: 'waitForCompletion', step: 'postActionDelay', side: 'chrome',
       target_ms: postActionDelay,
-    }, () => tab.waitForTimeout(postActionDelay));
+    }, () => tab.waitForTimeout(cappedTimeout(postActionDelay)));
   } finally {
     disposeListeners();
   }
@@ -47,7 +54,7 @@ export async function waitForCompletion<R>(tab: Tab, callback: () => Promise<R>)
     await perf.timeAsync({
       phase: 'waitForCompletion', step: 'navigationLoad', side: 'chrome',
       target_ms: navTimeout, state: navState,
-    }, () => tab.page.mainFrame().waitForLoadState(navState, { timeout: navTimeout }).catch(() => {}));
+    }, () => tab.page.mainFrame().waitForLoadState(navState, { timeout: cappedTimeout(navTimeout) }).catch(() => {}));
     return result;
   }
 
@@ -59,7 +66,7 @@ export async function waitForCompletion<R>(tab: Tab, callback: () => Promise<R>)
       promises.push(request.response().catch(() => {}));
   }
   const raceMs = perfConfig?.networkRaceTimeout ?? 3000;
-  const raceTimeout = new Promise<void>(resolve => setTimeout(resolve, raceMs));
+  const raceTimeout = new Promise<void>(resolve => setTimeout(resolve, cappedTimeout(raceMs)));
   await perf.timeAsync({
     phase: 'waitForCompletion', step: 'networkRace', side: 'server',
     target_ms: raceMs, requests: requests.length,
@@ -70,7 +77,7 @@ export async function waitForCompletion<R>(tab: Tab, callback: () => Promise<R>)
     await perf.timeAsync({
       phase: 'waitForCompletion', step: 'postSettlementDelay', side: 'chrome',
       target_ms: postSettlementDelay,
-    }, () => tab.waitForTimeout(postSettlementDelay));
+    }, () => tab.waitForTimeout(cappedTimeout(postSettlementDelay)));
   }
 
   return result;

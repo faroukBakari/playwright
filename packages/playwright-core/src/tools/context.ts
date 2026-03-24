@@ -144,6 +144,7 @@ export class Context {
   private _disposables: Disposable[] = [];
 
   private _runningToolName: string | undefined;
+  private _deadline: number | undefined;
   private _firstPageResolve: (() => void) | undefined;
   private _firstPagePromise: Promise<void> | undefined;
 
@@ -323,6 +324,20 @@ export class Context {
 
   setRunningTool(name: string | undefined) {
     this._runningToolName = name;
+  }
+
+  setDeadline(budgetMs: number): void {
+    this._deadline = Date.now() + budgetMs;
+  }
+
+  remainingBudget(): number {
+    if (this._deadline === undefined)
+      return Infinity;
+    return Math.max(0, this._deadline - Date.now());
+  }
+
+  clearDeadline(): void {
+    this._deadline = undefined;
   }
 
   private async _setupRequestInterception(context: playwright.BrowserContext) {

@@ -244,6 +244,7 @@ export class BrowserServerBackend implements ServerBackend {
     context.perfLog.setCallId(callId);
     const response = new Response(context, name, parsedArguments, cwd, snapshotSelector, snapshotMode);
     context.setRunningTool(name);
+    context.setDeadline(timeoutMs);
     let responseObject: mcpServer.CallToolResult;
     const toolStart = performance.now();
     try {
@@ -297,6 +298,7 @@ export class BrowserServerBackend implements ServerBackend {
       };
     } finally {
       context.setRunningTool(undefined);
+      context.clearDeadline();
       context.perfLog.setCallId(undefined);
     }
     return responseObject;
