@@ -28,7 +28,8 @@ export type ToolCapability =
   'storage' |
   'testing' |
   'vision' |
-  'devtools';
+  'devtools' |
+  'downloads';
 
 export type Config = {
   /**

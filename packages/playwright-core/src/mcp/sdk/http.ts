@@ -191,6 +191,10 @@ export async function installHttpTransport(httpServer: http.Server, serverBacken
       process.emit('SIGINT');
       return;
     }
+    // Sideband paths handled by relay HTTP endpoints — skip MCP transport
+    const sidebandPaths = ['/sessions', '/tabs', '/downloads', '/test/'];
+    if (sidebandPaths.some(p => url.pathname.startsWith(p)))
+      return;
     if (url.pathname.startsWith('/sse'))
       await handleSSE(serverBackendFactory, req, res, url, sseSessions);
     else

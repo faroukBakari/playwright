@@ -21,6 +21,7 @@ import console from './console';
 import cookies from './cookies';
 import createTab from './createTab';
 import devtools from './devtools';
+import downloads from './downloads';
 import dialogs from './dialogs';
 import evaluate from './evaluate';
 import feedback from './feedback';
@@ -57,6 +58,7 @@ export const browserTools: Tool<any>[] = [
   ...cookies,
   ...createTab,
   ...devtools,
+  ...downloads,
   ...dialogs,
   ...evaluate,
   ...feedback,

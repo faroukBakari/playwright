@@ -909,6 +909,12 @@ export class CDPRelayServer {
     return result;
   }
 
+  async sendCustomCommand(method: string, params: any, options?: { timeout?: number }): Promise<any> {
+    if (!this._extensionConnection)
+      throw new Error('Extension not connected');
+    return await (this._extensionConnection as any).send(method, params, { timeout: options?.timeout ?? 10000 });
+  }
+
   /** Active sessions snapshot for diagnostics. */
   activeSessions(): Array<{ sessionId: string; cdpSessionId: string | null; tab: { tabId: number; url: string } | null; status?: string }> {
     const active = [...this._clients.values()].map(s => ({

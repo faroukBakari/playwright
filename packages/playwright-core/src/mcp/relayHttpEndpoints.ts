@@ -24,6 +24,7 @@ export interface RelayHTTPDelegate {
   listTabs(): Promise<any>;
   createTab(sessionId: string, url?: string): Promise<any>;
   attachTab(sessionId: string, tabId: number): Promise<any>;
+  sendCustomCommand?(method: string, params: any, options?: { timeout?: number }): Promise<any>;
 }
 
 export function installRelayHTTPEndpoints(server: http.Server, relay: RelayHTTPDelegate): void {
@@ -104,6 +105,87 @@ export function installRelayHTTPEndpoints(server: http.Server, relay: RelayHTTPD
           res.setHeader('Content-Type', 'application/json');
           res.statusCode = 200;
           res.end(JSON.stringify(result));
+        } catch (e: any) {
+          res.setHeader('Content-Type', 'application/json');
+          res.statusCode = 500;
+          res.end(JSON.stringify({ error: e.message }));
+        }
+      });
+      return;
+    }
+
+    // Download endpoints — sideband HTTP to extension chrome.downloads API
+    if (url.pathname === '/downloads/file' && req.method === 'POST' && relay.sendCustomCommand) {
+      let body = '';
+      req.on('data', (chunk: Buffer) => body += chunk.toString());
+      req.on('error', () => {
+        if (!res.headersSent) { res.statusCode = 400; res.end(); }
+      });
+      req.on('end', async () => {
+        try {
+          const params = JSON.parse(body);
+          if (!params.url) {
+            res.setHeader('Content-Type', 'application/json');
+            res.statusCode = 400;
+            res.end(JSON.stringify({ error: 'url is required' }));
+            return;
+          }
+          const timeout = (params.timeout || 30000) + 5000;
+          const result = await relay.sendCustomCommand!('Downloads.downloadFile', params, { timeout });
+          res.setHeader('Content-Type', 'application/json');
+          res.statusCode = 200;
+          res.end(JSON.stringify({ result }));
+        } catch (e: any) {
+          res.setHeader('Content-Type', 'application/json');
+          res.statusCode = 500;
+          res.end(JSON.stringify({ error: e.message }));
+        }
+      });
+      return;
+    }
+
+    if (url.pathname === '/downloads/list' && req.method === 'POST' && relay.sendCustomCommand) {
+      let body = '';
+      req.on('data', (chunk: Buffer) => body += chunk.toString());
+      req.on('error', () => {
+        if (!res.headersSent) { res.statusCode = 400; res.end(); }
+      });
+      req.on('end', async () => {
+        try {
+          const params = JSON.parse(body);
+          const result = await relay.sendCustomCommand!('Downloads.listDownloads', params || {});
+          res.setHeader('Content-Type', 'application/json');
+          res.statusCode = 200;
+          res.end(JSON.stringify({ result }));
+        } catch (e: any) {
+          res.setHeader('Content-Type', 'application/json');
+          res.statusCode = 500;
+          res.end(JSON.stringify({ error: e.message }));
+        }
+      });
+      return;
+    }
+
+    // TEMPORARY — test harness for chrome.downloads verification. Remove after.
+    if (url.pathname === '/test/send' && req.method === 'POST' && relay.sendCustomCommand) {
+      let body = '';
+      req.on('data', (chunk: Buffer) => body += chunk.toString());
+      req.on('error', () => {
+        if (!res.headersSent) { res.statusCode = 400; res.end(); }
+      });
+      req.on('end', async () => {
+        try {
+          const { method, params } = JSON.parse(body);
+          if (!method) {
+            res.setHeader('Content-Type', 'application/json');
+            res.statusCode = 400;
+            res.end(JSON.stringify({ error: 'method is required' }));
+            return;
+          }
+          const result = await relay.sendCustomCommand!(method, params || {});
+          res.setHeader('Content-Type', 'application/json');
+          res.statusCode = 200;
+          res.end(JSON.stringify({ result }));
         } catch (e: any) {
           res.setHeader('Content-Type', 'application/json');
           res.statusCode = 500;
