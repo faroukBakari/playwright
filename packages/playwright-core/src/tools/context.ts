@@ -65,12 +65,7 @@ export type ContextConfig = {
     navigation?: number;
     expect?: number;
   };
-  toolTimeouts?: {
-    default?: number;
-    navigate?: number;
-    runCode?: number;
-  };
-  timeoutMatrix?: TimeoutMatrix;
+  timeoutMatrix: TimeoutMatrix;
   logging?: {
     retentionDays?: number;
   };

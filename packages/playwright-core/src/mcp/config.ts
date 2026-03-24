@@ -76,6 +76,23 @@ export type CLIOptions = {
   viewportSize?: ViewportSize;
 };
 
+export const DEFAULT_TIMEOUT_MATRIX: TimeoutMatrix = {
+  budget: { default: 5000, navigate: 15000, runCode: 30000 },
+  playwright: { action: 5000, navigation: 60000, expect: 5000 },
+  settle: {
+    postActionDelay: 100,
+    navigationLoad: 5000,
+    networkRace: 3000,
+    postSettlement: 10,
+  },
+  infrastructure: {
+    bridgeBuffer: 5000,
+    extensionConnect: 5000,
+    extensionCommand: 10000,
+    sessionGrace: 15000,
+  },
+};
+
 export const defaultConfig: FullConfig = {
   browser: {
     browserName: 'chromium',
@@ -90,10 +107,11 @@ export const defaultConfig: FullConfig = {
   },
   server: {},
   timeouts: {
-    action: 5000,
-    navigation: 60000,
-    expect: 5000,
+    budget: { ...DEFAULT_TIMEOUT_MATRIX.budget },
+    playwright: { ...DEFAULT_TIMEOUT_MATRIX.playwright },
+    infrastructure: { bridgeBuffer: DEFAULT_TIMEOUT_MATRIX.infrastructure.bridgeBuffer },
   },
+  timeoutMatrix: DEFAULT_TIMEOUT_MATRIX,
   performance: {
     postActionDelay: 100,
     postSettlementDelay: 10,
@@ -118,14 +136,14 @@ export type FullConfig = Config & {
     contextOptions: NonNullable<BrowserUserConfig['contextOptions']>;
   },
   server?: Config['server'],
+  timeoutMatrix: TimeoutMatrix;
   skillMode?: boolean;
   configFile?: string;
 };
 
 export async function resolveConfig(config: Config): Promise<FullConfig> {
   const result = mergeConfig(defaultConfig, config);
-  result.timeoutMatrix = resolveTimeoutMatrix(result);
-  return result;
+  return finalizeTimeouts(result);
 }
 
 export async function resolveCLIConfig(cliOptions: CLIOptions): Promise<FullConfig> {
@@ -140,8 +158,7 @@ export async function resolveCLIConfig(cliOptions: CLIOptions): Promise<FullConf
   result = mergeConfig(result, cliOverrides);
   result.configFile = configFile;
   await validateConfig(result);
-  result.timeoutMatrix = resolveTimeoutMatrix(result);
-  return result;
+  return finalizeTimeouts(result);
 }
 
 export async function validateConfig(config: FullConfig): Promise<void> {
@@ -276,8 +293,10 @@ export function configFromCLIOptions(cliOptions: CLIOptions): Config & { configF
     imageResponses: cliOptions.imageResponses,
     testIdAttribute: cliOptions.testIdAttribute,
     timeouts: {
-      action: cliOptions.timeoutAction,
-      navigation: cliOptions.timeoutNavigation,
+      playwright: {
+        action: cliOptions.timeoutAction,
+        navigation: cliOptions.timeoutNavigation,
+      },
     },
   };
 
@@ -447,16 +466,23 @@ export function mergeConfig(base: FullConfig, overrides: Config): FullConfig {
       ...pickDefined(overrides.snapshot),
     },
     timeouts: {
-      ...pickDefined(base.timeouts),
-      ...pickDefined(overrides.timeouts),
+      budget: {
+        ...pickDefined(base.timeouts?.budget),
+        ...pickDefined(overrides.timeouts?.budget),
+      },
+      playwright: {
+        ...pickDefined(base.timeouts?.playwright),
+        ...pickDefined(overrides.timeouts?.playwright),
+      },
+      infrastructure: {
+        ...pickDefined(base.timeouts?.infrastructure),
+        ...pickDefined(overrides.timeouts?.infrastructure),
+      },
     },
+    timeoutMatrix: base.timeoutMatrix,
     performance: {
       ...pickDefined(base.performance),
       ...pickDefined(overrides.performance),
-    },
-    toolTimeouts: {
-      ...pickDefined(base.toolTimeouts),
-      ...pickDefined(overrides.toolTimeouts),
     },
     logging: {
       ...pickDefined(base.logging),
@@ -466,7 +492,6 @@ export function mergeConfig(base: FullConfig, overrides: Config): FullConfig {
       ...pickDefined(base.relay),
       ...pickDefined(overrides.relay),
     },
-    timeoutMatrix: overrides.timeoutMatrix ?? base.timeoutMatrix,
   } as FullConfig;
 }
 
@@ -543,60 +568,85 @@ function envToString(value: string | undefined): string | undefined {
 }
 
 /**
- * Resolve the unified timeout matrix from config. If the config provides an
- * explicit `timeoutMatrix`, use it directly. Otherwise, derive the matrix from
- * the legacy split config keys (timeouts, toolTimeouts, performance, relay).
+ * Resolve the unified timeout matrix from the merged config.
+ * Reads budget/playwright/infrastructure from config.timeouts (matrix shape)
+ * and settle values from config.performance.
  */
 export function resolveTimeoutMatrix(config: FullConfig): TimeoutMatrix {
-  if (config.timeoutMatrix)
-    return config.timeoutMatrix;
+  const t = config.timeouts;
   return {
     budget: {
-      default: config.toolTimeouts?.default ?? 5000,
-      navigate: config.toolTimeouts?.navigate ?? 15000,
-      runCode: config.toolTimeouts?.runCode ?? 30000,
+      default: t?.budget?.default ?? DEFAULT_TIMEOUT_MATRIX.budget.default,
+      navigate: t?.budget?.navigate ?? DEFAULT_TIMEOUT_MATRIX.budget.navigate,
+      runCode: t?.budget?.runCode ?? DEFAULT_TIMEOUT_MATRIX.budget.runCode,
     },
     playwright: {
-      action: config.timeouts?.action ?? 5000,
-      navigation: config.timeouts?.navigation ?? 60000,
-      expect: config.timeouts?.expect ?? 5000,
+      action: t?.playwright?.action ?? DEFAULT_TIMEOUT_MATRIX.playwright.action,
+      navigation: t?.playwright?.navigation ?? DEFAULT_TIMEOUT_MATRIX.playwright.navigation,
+      expect: t?.playwright?.expect ?? DEFAULT_TIMEOUT_MATRIX.playwright.expect,
     },
     settle: {
-      postActionDelay: config.performance?.postActionDelay ?? 100,
-      navigationLoad: config.performance?.navigationLoadTimeout ?? 5000,
-      networkRace: config.performance?.networkRaceTimeout ?? 3000,
-      postSettlement: config.performance?.postSettlementDelay ?? 10,
+      postActionDelay: config.performance?.postActionDelay ?? DEFAULT_TIMEOUT_MATRIX.settle.postActionDelay,
+      navigationLoad: config.performance?.navigationLoadTimeout ?? DEFAULT_TIMEOUT_MATRIX.settle.navigationLoad,
+      networkRace: config.performance?.networkRaceTimeout ?? DEFAULT_TIMEOUT_MATRIX.settle.networkRace,
+      postSettlement: config.performance?.postSettlementDelay ?? DEFAULT_TIMEOUT_MATRIX.settle.postSettlement,
     },
     infrastructure: {
-      bridgeBuffer: 5000,
-      extensionConnect: 5000,
-      extensionCommand: 10000,
-      sessionGrace: config.relay?.sessionGraceTTL ?? 15000,
+      bridgeBuffer: t?.infrastructure?.bridgeBuffer ?? DEFAULT_TIMEOUT_MATRIX.infrastructure.bridgeBuffer,
+      extensionConnect: DEFAULT_TIMEOUT_MATRIX.infrastructure.extensionConnect,
+      extensionCommand: DEFAULT_TIMEOUT_MATRIX.infrastructure.extensionCommand,
+      sessionGrace: config.relay?.sessionGraceTTL ?? DEFAULT_TIMEOUT_MATRIX.infrastructure.sessionGrace,
     },
   };
 }
 
 /**
- * Validate timeout cascade constraints. Returns an array of warning messages
- * for any violations. Phase 0: advisory only (no throws). Phase 5 will promote
- * violations to errors for explicit timeoutMatrix configs.
+ * Validate timeout cascade constraints. Throws on violations that would cause
+ * runtime failures. Deadline propagation and the safety net handle tight
+ * budget-to-playwright ratios dynamically, so only structurally broken configs
+ * are rejected here.
  */
-export function validateTimeoutCascade(matrix: TimeoutMatrix): string[] {
-  const warnings: string[] = [];
-  const settleMax = matrix.settle.postActionDelay + matrix.settle.navigationLoad +
-    matrix.settle.networkRace + matrix.settle.postSettlement;
+export function validateTimeoutCascade(matrix: TimeoutMatrix): void {
+  const violations: string[] = [];
 
-  if (matrix.budget.default < matrix.playwright.action + settleMax)
-    warnings.push(`budget.default (${matrix.budget.default}ms) < playwright.action (${matrix.playwright.action}ms) + settle overhead (${settleMax}ms) = ${matrix.playwright.action + settleMax}ms. Input tools may structurally timeout.`);
+  // Budget must be positive and ordered sensibly
+  if (matrix.budget.default <= 0)
+    violations.push(`budget.default must be positive, got ${matrix.budget.default}ms.`);
+  if (matrix.budget.navigate < matrix.budget.default)
+    violations.push(`budget.navigate (${matrix.budget.navigate}ms) < budget.default (${matrix.budget.default}ms). Navigation should have at least as much budget as regular tools.`);
+  if (matrix.budget.runCode < matrix.budget.default)
+    violations.push(`budget.runCode (${matrix.budget.runCode}ms) < budget.default (${matrix.budget.default}ms). Code execution should have at least as much budget as regular tools.`);
 
-  if (matrix.budget.navigate < matrix.playwright.navigation + 2000)
-    warnings.push(`budget.navigate (${matrix.budget.navigate}ms) < playwright.navigation (${matrix.playwright.navigation}ms) + 2000ms buffer = ${matrix.playwright.navigation + 2000}ms.`);
+  // Playwright inner timeouts must not exceed their corresponding budget
+  // (the safety net truncates, but grossly oversized inner timeouts indicate config error)
+  if (matrix.playwright.action > matrix.budget.default * 2)
+    violations.push(`playwright.action (${matrix.playwright.action}ms) > 2x budget.default (${matrix.budget.default}ms). Inner timeout is unreasonably large relative to budget.`);
+  if (matrix.playwright.navigation > matrix.budget.navigate * 2)
+    violations.push(`playwright.navigation (${matrix.playwright.navigation}ms) > 2x budget.navigate (${matrix.budget.navigate}ms). Inner timeout is unreasonably large relative to budget.`);
 
-  if (matrix.budget.runCode < matrix.budget.default + 25000)
-    warnings.push(`budget.runCode (${matrix.budget.runCode}ms) < budget.default (${matrix.budget.default}ms) + 25000ms = ${matrix.budget.default + 25000}ms.`);
-
+  // Bridge buffer must provide real headroom
   if (matrix.infrastructure.bridgeBuffer < 3000)
-    warnings.push(`infrastructure.bridgeBuffer (${matrix.infrastructure.bridgeBuffer}ms) < 3000ms minimum.`);
+    violations.push(`infrastructure.bridgeBuffer (${matrix.infrastructure.bridgeBuffer}ms) < 3000ms minimum.`);
 
-  return warnings;
+  if (violations.length > 0)
+    throw new Error(`Timeout cascade violation:\n${violations.join('\n')}`);
+}
+
+/**
+ * Finalize timeout resolution after all config merges.
+ * Builds the TimeoutMatrix, validates cascade constraints, and populates
+ * flat playwright timeouts on the config for ContextConfig/tab.ts compatibility.
+ */
+function finalizeTimeouts(config: FullConfig): FullConfig {
+  const matrix = resolveTimeoutMatrix(config);
+  validateTimeoutCascade(matrix);
+  config.timeoutMatrix = matrix;
+  // Populate flat playwright timeouts for tab.ts getters
+  // (ContextConfig.timeouts reads action/navigation/expect)
+  (config as any).timeouts = {
+    action: matrix.playwright.action,
+    navigation: matrix.playwright.navigation,
+    expect: matrix.playwright.expect,
+  };
+  return config;
 }

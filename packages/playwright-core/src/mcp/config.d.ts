@@ -200,21 +200,36 @@ export type Config = {
    */
   testIdAttribute?: string;
 
+  /**
+   * Unified timeout matrix for deadline propagation framework.
+   * Budget = per-call dispatch timeout, Playwright = inner action ceilings,
+   * Infrastructure = bridge/extension-level headroom.
+   * Settle timeouts live in `performance.*` and are resolved into the matrix at load time.
+   */
   timeouts?: {
-    /*
-     * Configures default action timeout: https://playwright.dev/docs/api/class-page#page-set-default-timeout. Defaults to 5000ms.
-     */
-    action?: number;
-
-    /*
-     * Configures default navigation timeout: https://playwright.dev/docs/api/class-page#page-set-default-navigation-timeout. Defaults to 60000ms.
-     */
-    navigation?: number;
-
-    /**
-     * Configures default expect timeout: https://playwright.dev/docs/test-timeouts#expect-timeout. Defaults to 5000ms.
-     */
-    expect?: number;
+    /** Per-call budget: total time allocated for a tool invocation. */
+    budget?: {
+      /** Default budget for readOnly/input/action/assertion tools (ms). Default: 5000 */
+      default?: number;
+      /** Budget for navigation tools (ms). Default: 15000 */
+      navigate?: number;
+      /** Budget for browser_run_code (ms). Default: 30000 */
+      runCode?: number;
+    };
+    /** Playwright inner timeouts — ceilings within the budget. */
+    playwright?: {
+      /** Locator action timeout (ms). Default: 5000 */
+      action?: number;
+      /** Page navigation timeout (ms). Default: 60000 */
+      navigation?: number;
+      /** Expect/assertion timeout (ms). Default: 5000 */
+      expect?: number;
+    };
+    /** Infrastructure-level timeouts (bridge, extension). */
+    infrastructure?: {
+      /** Bridge HTTP timeout buffer above max budget (ms). Default: 5000 */
+      bridgeBuffer?: number;
+    };
   };
 
   /**
@@ -268,25 +283,11 @@ export type Config = {
   maxResponseChars?: number;
 
   /**
-   * MCP wrapper (dispatch-level) timeouts in milliseconds.
-   * These govern how long the server waits for a tool handler before
-   * returning a timeout error. Separate from Playwright inner timeouts.
-   */
-  /**
    * Logging configuration.
    */
   logging?: {
     /** Number of days to retain perf and error log files. Default: 10 */
     retentionDays?: number;
-  };
-
-  toolTimeouts?: {
-    /** Default timeout for readOnly/input/action/assertion tools. Default: 5000 */
-    default?: number;
-    /** Timeout for navigation tools. Default: 15000 */
-    navigate?: number;
-    /** Timeout for browser_run_code. Default: 30000 */
-    runCode?: number;
   };
 
   relay?: {
@@ -295,14 +296,6 @@ export type Config = {
     /** Per-session grace TTL in ms. Preserves tab binding during brief disconnects. Default: 30000 */
     sessionGraceTTL?: number;
   };
-
-  /**
-   * Unified timeout matrix for deadline propagation framework.
-   * When provided, governs all timeout layers through a single cascading budget.
-   * If omitted, the matrix is derived from timeouts + toolTimeouts + performance
-   * at startup (backward compatibility).
-   */
-  timeoutMatrix?: TimeoutMatrix;
 
   performance?: {
     /** Post-action request collection window (ms). Default: 100 */

@@ -154,27 +154,20 @@ export class BrowserServerBackend implements ServerBackend {
     serverLog('lifecycle', `removed context for sessionId="${sessionId}" (remaining: ${this._contexts.size})`);
   }
 
-  static readonly DEFAULT_TIMEOUTS: Record<string, number> = {
-    readOnly: 5000,
-    input: 5000,
-    action: 5000,
-    assertion: 5000,
-  };
-
   static readonly NAVIGATE_TOOLS = new Set([
     'browser_navigate', 'browser_navigate_and_wait',
     'browser_navigate_back', 'browser_navigate_forward', 'browser_reload',
   ]);
 
-  private _resolveTimeout(name: string, toolType: string, timeoutSec: number | undefined): number {
+  private _resolveTimeout(name: string, _toolType: string, timeoutSec: number | undefined): number {
     if (timeoutSec !== undefined)
       return timeoutSec * 1000;
-    const cfg = this._config.toolTimeouts;
+    const budget = this._config.timeoutMatrix.budget;
     if (BrowserServerBackend.NAVIGATE_TOOLS.has(name))
-      return cfg?.navigate ?? 15000;
+      return budget.navigate;
     if (name === 'browser_run_code')
-      return cfg?.runCode ?? 30000;
-    return cfg?.default ?? BrowserServerBackend.DEFAULT_TIMEOUTS[toolType] ?? 5000;
+      return budget.runCode;
+    return budget.default;
   }
 
   private async _resolveContext(sessionId?: string): Promise<Context> {
