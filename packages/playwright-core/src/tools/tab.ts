@@ -377,12 +377,15 @@ export class Tab extends EventEmitter<TabEventsInterface> {
     return { total: messages.length + pageErrors.length, errors, warnings };
   }
 
-  async consoleMessages(level: ConsoleMessageLevel): Promise<ConsoleMessage[]> {
+  async consoleMessages(level: ConsoleMessageLevel, excludePatterns?: string[]): Promise<ConsoleMessage[]> {
     await this._initializedPromise;
     const result: ConsoleMessage[] = [];
     const messages = await this.page.consoleMessages();
     for (const message of messages) {
       const cm = messageToConsoleMessage(message);
+      if (excludePatterns?.length && cm.location.url &&
+          excludePatterns.some(p => cm.location.url.startsWith(p)))
+        continue;
       if (shouldIncludeMessage(level, cm.type))
         result.push(cm);
     }

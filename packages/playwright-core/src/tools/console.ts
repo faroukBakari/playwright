@@ -32,7 +32,7 @@ const console = defineTabTool({
   handle: async (tab, params, response) => {
     const count = await tab.consoleMessageCount();
     const header = [`Total messages: ${count.total} (Errors: ${count.errors}, Warnings: ${count.warnings})`];
-    const messages = await tab.consoleMessages(params.level);
+    const messages = await tab.consoleMessages(params.level, tab.context.config.console?.excludePatterns);
     if (messages.length !== count.total)
       header.push(`Returning ${messages.length} messages for level "${params.level}"`);
     const text = [...header, '', ...messages.map(message => message.toString())].join('\n');
