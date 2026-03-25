@@ -260,6 +260,7 @@ export class CDPRelayServer {
         cdpSessionId: gracedSession.cdpSessionId,
         targetInfo: gracedSession.targetInfo,
         tabId: gracedSession.tabId,
+        downloadBehavior: null,
       };
       this._clients.set(sessionId, session);
       this._state = 'connected';
@@ -282,6 +283,7 @@ export class CDPRelayServer {
         cdpSessionId: null,
         targetInfo: null,
         tabId: dormant.tabId,
+        downloadBehavior: null,
       };
       this._clients.set(sessionId, session);
       this._state = 'connected';
@@ -309,6 +311,7 @@ export class CDPRelayServer {
         cdpSessionId: this._lastDisconnectedSession?.cdpSessionId ?? null,
         targetInfo: this._lastDisconnectedSession?.targetInfo ?? null,
         tabId: this._lastDisconnectedSession?.tabId ?? null,
+        downloadBehavior: this._lastDisconnectedSession?.downloadBehavior ?? null,
       };
       this._clients.set(sessionId, session);
       this._lastDisconnectedSession = null;
