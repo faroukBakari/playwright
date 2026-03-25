@@ -43,7 +43,11 @@ export type ContextConfig = {
   allowUnrestrictedFileAccess?: boolean;
   capabilities?: ToolCapability[];
   codegen?: 'typescript' | 'none';
-  console?: { level?: 'error' | 'warning' | 'info' | 'debug' };
+  console?: {
+    level?: 'error' | 'warning' | 'info' | 'debug';
+    excludePatterns?: string[];
+    maxEvents?: number;
+  };
   imageResponses?: 'allow' | 'omit';
   network?: {
     allowedOrigins?: string[];

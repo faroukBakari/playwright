@@ -45,6 +45,8 @@ export type CLIOptions = {
   codegen?: 'typescript' | 'none';
   config?: string;
   consoleLevel?: 'error' | 'warning' | 'info' | 'debug';
+  consoleExcludePatterns?: string[];
+  consoleMaxEvents?: number;
   device?: string;
   extension?: boolean;
   executablePath?: string;
@@ -276,6 +278,8 @@ export function configFromCLIOptions(cliOptions: CLIOptions): Config & { configF
     capabilities: cliOptions.caps as ToolCapability[],
     console: {
       level: cliOptions.consoleLevel,
+      excludePatterns: cliOptions.consoleExcludePatterns,
+      maxEvents: cliOptions.consoleMaxEvents,
     },
     network: {
       allowedOrigins: cliOptions.allowedOrigins,
@@ -318,6 +322,8 @@ export function configFromEnv(): Config & { configFile?: string } {
   options.config = envToString(process.env.PLAYWRIGHT_MCP_CONFIG);
   if (process.env.PLAYWRIGHT_MCP_CONSOLE_LEVEL)
     options.consoleLevel = enumParser<'error' | 'warning' | 'info' | 'debug'>('--console-level', ['error', 'warning', 'info', 'debug'], process.env.PLAYWRIGHT_MCP_CONSOLE_LEVEL);
+  options.consoleExcludePatterns = commaSeparatedList(process.env.PLAYWRIGHT_MCP_CONSOLE_EXCLUDE_PATTERNS);
+  options.consoleMaxEvents = numberParser(process.env.PLAYWRIGHT_MCP_CONSOLE_MAX_EVENTS);
   options.device = envToString(process.env.PLAYWRIGHT_MCP_DEVICE);
   options.executablePath = envToString(process.env.PLAYWRIGHT_MCP_EXECUTABLE_PATH);
   options.extension = envToBoolean(process.env.PLAYWRIGHT_MCP_EXTENSION);

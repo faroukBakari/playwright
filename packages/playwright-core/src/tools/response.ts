@@ -285,19 +285,57 @@ export class Response {
     if (tabSnapshot?.consoleLink)
       text.push(`- New console entries: ${tabSnapshot.consoleLink}`);
     if (tabSnapshot?.events.filter(event => event.type !== 'request').length) {
+      // Per-call overrides from tool args, falling back to config defaults
+      const excludePatterns: string[] | undefined = this.toolArgs.consoleExcludePatterns ?? this._context.config.console?.excludePatterns;
+      const maxEvents: number | undefined = this.toolArgs.consoleMaxEvents ?? this._context.config.console?.maxEvents;
+
+      const consoleLines: string[] = [];
+      let lastConsoleStr: string | undefined;
+      let lastConsoleCount = 0;
+
+      const flushConsoleGroup = () => {
+        if (lastConsoleStr !== undefined) {
+          const prefix = lastConsoleCount > 1 ? `(${lastConsoleCount}×) ` : '';
+          consoleLines.push(`- ${prefix}${lastConsoleStr}`);
+        }
+      };
+
       for (const event of tabSnapshot.events) {
         if (event.type === 'console' && this._context.config.outputMode !== 'file') {
+          // Exclude by URL prefix pattern
+          if (excludePatterns?.length && event.message.location.url &&
+              excludePatterns.some(p => event.message.location.url.startsWith(p)))
+            continue;
           const level = consoleLevelForMessageType(event.message.type);
           const isHighSeverity = level === 'error' || level === 'warning';
           if (isHighSeverity || this._context.config.snapshot?.mode !== 'none') {
-            if (shouldIncludeMessage(this._context.config.console?.level, event.message.type))
-              text.push(`- ${trimMiddle(event.message.toString(), 100)}`);
+            if (shouldIncludeMessage(this._context.config.console?.level, event.message.type)) {
+              const str = trimMiddle(event.message.toString(), 100);
+              if (str === lastConsoleStr) {
+                lastConsoleCount++;
+              } else {
+                flushConsoleGroup();
+                lastConsoleStr = str;
+                lastConsoleCount = 1;
+              }
+            }
           }
         } else if (event.type === 'download-start') {
           text.push(`- Downloading file ${event.download.download.suggestedFilename()} ...`);
         } else if (event.type === 'download-finish') {
           text.push(`- Downloaded file ${event.download.download.suggestedFilename()} to "${this._computRelativeTo(event.download.outputFile)}"`);
         }
+      }
+      flushConsoleGroup();
+
+      // Apply maxEvents tail limit
+      if (maxEvents !== undefined && consoleLines.length > maxEvents) {
+        const omitted = consoleLines.length - maxEvents;
+        const tail = consoleLines.slice(-maxEvents);
+        text.push(`- [${omitted} earlier console entries omitted]`);
+        text.push(...tail);
+      } else {
+        text.push(...consoleLines);
       }
     }
     if (text.length)

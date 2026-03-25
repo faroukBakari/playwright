@@ -173,6 +173,18 @@ export type Config = {
      * The level of console messages to return. Each level includes the messages of more severe levels. Defaults to "info".
      */
     level?: 'error' | 'warning' | 'info' | 'debug';
+    /**
+     * URL prefix patterns to exclude from console output. Messages whose source URL
+     * starts with any of these prefixes are dropped before reaching the Events section.
+     * Defaults to ["chrome-extension://"].
+     */
+    excludePatterns?: string[];
+    /**
+     * Maximum number of console lines in the Events section of tool responses.
+     * When exceeded, only the last N lines are kept and a summary line is prepended.
+     * Defaults to 50.
+     */
+    maxEvents?: number;
   },
 
   network?: {

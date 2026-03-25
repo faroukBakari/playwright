@@ -19,6 +19,11 @@ import { formatObject, formatObjectOrVoid } from '../utils/isomorphic/stringUtil
 
 import { defineTabTool, defineTool } from './tool';
 
+export const consoleOptionsSchema = z.object({
+  consoleExcludePatterns: z.array(z.string()).optional().describe('URL prefix patterns to exclude from console output in Events section. Overrides config default (e.g. pass [] to see all messages including extension noise).'),
+  consoleMaxEvents: z.number().optional().describe('Maximum console lines in Events section. Overrides config default.'),
+});
+
 const snapshot = defineTool({
   capability: 'core',
   schema: {
@@ -28,6 +33,7 @@ const snapshot = defineTool({
     inputSchema: z.object({
       filename: z.string().optional().describe('Save snapshot to markdown file instead of returning it in the response.'),
       snapshotSelector: z.string().optional().describe('CSS selector to scope the snapshot to a DOM subtree (e.g. "main", ".content"). Only elements within the matched subtree appear in the snapshot. Refs from prior full-page snapshots remain valid.'),
+      ...consoleOptionsSchema.shape,
     }),
     type: 'readOnly',
   },
@@ -42,6 +48,7 @@ export const snapshotOptionsSchema = z.object({
   clientId: z.string().uuid().optional().describe('Persistent client identity for diff baseline continuity. Pass the clientId from your first tool response on all subsequent calls, including after resume.'),
   includeSnapshot: z.enum(['none', 'diff', 'full']).optional().describe('Control snapshot in response: "none" to suppress, "diff" for incremental diff, "full" for complete snapshot'),
   snapshotSelector: z.string().optional().describe('CSS selector to scope the snapshot to a DOM subtree (e.g. "main", ".content"). Only elements within the matched subtree appear in the snapshot. Refs from prior full-page snapshots remain valid.'),
+  ...consoleOptionsSchema.shape,
 });
 
 export const elementSchema = z.object({

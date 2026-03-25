@@ -277,8 +277,15 @@ export class Tab extends EventEmitter<TabEventsInterface> {
     const wallTime = message.timestamp;
     this._addLogEntry({ type: 'console', wallTime, message });
     const level = consoleLevelForMessageType(message.type);
-    if (level === 'error' || level === 'warning')
-      this._consoleLog.appendLine(wallTime, () => message.toString());
+    if (level === 'error' || level === 'warning') {
+      // Apply excludePatterns to console log file only — extension noise doesn't belong in error logs.
+      // Events section filtering happens at emission in response.ts (supports per-call overrides).
+      const excludePatterns = this.context.config.console?.excludePatterns;
+      const excluded = excludePatterns?.length && message.location.url &&
+        excludePatterns.some(pattern => message.location.url.startsWith(pattern));
+      if (!excluded)
+        this._consoleLog.appendLine(wallTime, () => message.toString());
+    }
   }
 
   private _addLogEntry(entry: EventEntry) {
@@ -508,28 +515,39 @@ export class Tab extends EventEmitter<TabEventsInterface> {
   }
 }
 
+export type ConsoleMessageLocation = {
+  url: string;
+  lineNumber: number;
+  columnNumber: number;
+};
+
 export type ConsoleMessage = {
   type: ReturnType<playwright.ConsoleMessage['type']>;
   timestamp: number;
   text: string;
+  location: ConsoleMessageLocation;
   toString(): string;
 };
 
 function messageToConsoleMessage(message: playwright.ConsoleMessage): ConsoleMessage {
+  const location = message.location();
   return {
     type: message.type(),
     timestamp: message.timestamp(),
     text: message.text(),
-    toString: () => `[${message.type().toUpperCase()}] ${message.text()} @ ${message.location().url}:${message.location().lineNumber}`,
+    location,
+    toString: () => `[${message.type().toUpperCase()}] ${message.text()} @ ${location.url}:${location.lineNumber}`,
   };
 }
 
 function pageErrorToConsoleMessage(errorOrValue: Error | any): ConsoleMessage {
+  const emptyLocation: ConsoleMessageLocation = { url: '', lineNumber: 0, columnNumber: 0 };
   if (errorOrValue instanceof Error) {
     return {
       type: 'error',
       timestamp: Date.now(),
       text: errorOrValue.message,
+      location: emptyLocation,
       toString: () => errorOrValue.stack || errorOrValue.message,
     };
   }
@@ -537,6 +555,7 @@ function pageErrorToConsoleMessage(errorOrValue: Error | any): ConsoleMessage {
     type: 'error',
     timestamp: Date.now(),
     text: String(errorOrValue),
+    location: emptyLocation,
     toString: () => String(errorOrValue),
   };
 }
