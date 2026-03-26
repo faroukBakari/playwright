@@ -91,6 +91,7 @@ type TabSnapshot = {
   modalStates: ModalState[];
   events: EventEntry[];
   consoleLink?: string;
+  selectorResolved?: boolean;
 };
 
 export class Tab extends EventEmitter<TabEventsInterface> {
@@ -577,6 +578,7 @@ export class Tab extends EventEmitter<TabEventsInterface> {
         ariaSnapshotDiff: this._needsFullSnapshot ? undefined : snapshot.incremental,
         modalStates: [],
         events: [],
+        selectorResolved: snapshot.selectorResolved,
       };
       this._parseRefMetadata(snapshot.full);
     });

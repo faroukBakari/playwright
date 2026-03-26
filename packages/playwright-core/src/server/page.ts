@@ -887,7 +887,7 @@ export class Page extends SdkObject<PageEventMap> {
       debugLogger.log('api', `snapshotForAI filter: ${parts.join(', ')}`);
     }
 
-    return { full, incremental };
+    return { full, incremental, selectorResolved: snapshot.selectorResolved };
   }
 
   async setDockTile(image: Buffer) {

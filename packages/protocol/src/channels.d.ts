@@ -2622,6 +2622,7 @@ export type PageSnapshotForAIOptions = {
 export type PageSnapshotForAIResult = {
   full: string,
   incremental?: string,
+  selectorResolved?: boolean,
 };
 export type PageStartJSCoverageParams = {
   resetOnNavigation?: boolean,

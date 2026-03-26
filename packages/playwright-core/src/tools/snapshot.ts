@@ -52,6 +52,7 @@ export const snapshotOptionsSchema = z.object({
     text: z.string().optional().describe('Wait for text to appear in page before snapshot'),
     textGone: z.string().optional().describe('Wait for text to disappear before snapshot'),
     selector: z.string().optional().describe('Wait for CSS selector to exist before snapshot'),
+    within: z.string().optional().describe('CSS selector to scope text/textGone matching to a DOM subtree (e.g. "main", ".detail-pane"). Falls back to page-wide if selector not found.'),
   }).optional().describe('Wait condition before capturing snapshot. Eliminates the need for a separate browser_wait_for + browser_snapshot sequence. Capped at configured timeout (default 3s).'),
   ...consoleOptionsSchema.shape,
 });

@@ -234,7 +234,7 @@ export class Response {
     if (this._errors.length)
       addSection('Error', this._errors);
 
-    addSection('Result', [`- clientId: ${this._clientId}`, ...this._results]);
+    const resultContent = addSection('Result', [`- clientId: ${this._clientId}`, ...this._results]);
 
     // Code
     if (this._context.config.codegen !== 'none' && this._code.length)
@@ -256,22 +256,31 @@ export class Response {
       );
       const perf = this._context.perfLog;
       try {
+        const within = this._snapshotWaitFor.within;
         if (this._snapshotWaitFor.text) {
           await perf.timeAsync({
             phase: 'snapshot', step: 'snapshotWaitFor', side: 'chrome',
             target_ms: waitForTimeout, condition: 'text', value: this._snapshotWaitFor.text,
+            ...(within ? { within } : {}),
           }, () => tab.page.waitForFunction(
-            (text: string) => document.body?.innerText?.includes(text),
-            this._snapshotWaitFor!.text!,
+            ([text, within]: [string, string | undefined]) => {
+              const root = within ? document.querySelector(within) : document.body;
+              return root?.innerText?.includes(text) ?? false;
+            },
+            [this._snapshotWaitFor!.text!, within] as [string, string | undefined],
             { timeout: waitForTimeout }
           ));
         } else if (this._snapshotWaitFor.textGone) {
           await perf.timeAsync({
             phase: 'snapshot', step: 'snapshotWaitFor', side: 'chrome',
             target_ms: waitForTimeout, condition: 'textGone', value: this._snapshotWaitFor.textGone,
+            ...(within ? { within } : {}),
           }, () => tab.page.waitForFunction(
-            (text: string) => !document.body?.innerText?.includes(text),
-            this._snapshotWaitFor!.textGone!,
+            ([text, within]: [string, string | undefined]) => {
+              const root = within ? document.querySelector(within) : document.body;
+              return !(root?.innerText?.includes(text) ?? false);
+            },
+            [this._snapshotWaitFor!.textGone!, within] as [string, string | undefined],
             { timeout: waitForTimeout }
           ));
         } else if (this._snapshotWaitFor.selector) {
@@ -283,13 +292,15 @@ export class Response {
       } catch (e) {
         // Timeout is not fatal — capture snapshot anyway with current state
         if (e instanceof Error && e.name === 'TimeoutError')
-          this._results.push(`snapshotWaitFor timed out after ${waitForTimeout}ms — snapshot shows current state`);
+          resultContent.push(`snapshotWaitFor timed out after ${waitForTimeout}ms — snapshot shows current state`);
         else
           throw e;
       }
     }
 
     const tabSnapshot = hasTab ? await this._context.currentTabOrDie().captureSnapshot(this._clientWorkspace, { rootSelector: this._snapshotSelector, clientId: this._clientId }) : undefined;
+    if (tabSnapshot?.selectorResolved === false && this._snapshotSelector)
+      resultContent.push(`snapshotSelector '${this._snapshotSelector}' matched no elements — returning full page snapshot`);
     requestDebug('tool=%s snapshot=%s hasTab=%s', this.toolName, this._includeSnapshot, hasTab);
     const tabHeaders = await Promise.all(this._context.tabs().map(tab => tab.headerSnapshot()));
     if (this._includeSnapshot !== 'none' || tabHeaders.some(header => header.changed)) {

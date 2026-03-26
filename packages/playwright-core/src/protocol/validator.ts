@@ -1502,6 +1502,7 @@ scheme.PageSnapshotForAIParams = tObject({
 scheme.PageSnapshotForAIResult = tObject({
   full: tString,
   incremental: tOptional(tString),
+  selectorResolved: tOptional(tBoolean),
 });
 scheme.PageStartJSCoverageParams = tObject({
   resetOnNavigation: tOptional(tBoolean),

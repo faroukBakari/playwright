@@ -2009,6 +2009,7 @@ Page:
       returns:
         full: string
         incremental: string?
+        selectorResolved: boolean?
 
     startJSCoverage:
       title: Start JS coverage
