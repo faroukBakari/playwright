@@ -1074,17 +1074,22 @@ async function snapshotFrameForAI(progress: Progress, frame: frames.Frame, optio
     full.push(...childSnapshot.full.map(l => leadingSpace + '  ' + l));
   }
 
-  return { full, incremental, filterStats: snapshot.filterStats, selectorResolved: snapshot.selectorResolved };
+  const childSelectorResolved = childSnapshots.some(c => c.selectorResolved === true);
+  const aggregatedSelectorResolved = snapshot.selectorResolved !== undefined
+    ? (snapshot.selectorResolved || childSelectorResolved)
+    : undefined;
+  return { full, incremental, filterStats: snapshot.filterStats, selectorResolved: aggregatedSelectorResolved };
 }
 
-async function snapshotFrameRefForAI(progress: Progress, parentFrame: frames.Frame, frameRef: string, options: { track?: string, mode?: 'full' | 'incremental', interactableOnly?: boolean, rootSelector?: string }): Promise<{ full: string[], incremental?: string[] }> {
+async function snapshotFrameRefForAI(progress: Progress, parentFrame: frames.Frame, frameRef: string, options: { track?: string, mode?: 'full' | 'incremental', interactableOnly?: boolean, rootSelector?: string }): Promise<{ full: string[], incremental?: string[], selectorResolved?: boolean }> {
   const frameSelector = `aria-ref=${frameRef} >> internal:control=enter-frame`;
   const frameBodySelector = `${frameSelector} >> body`;
   const child = await progress.race(parentFrame.selectors.resolveFrameForSelector(frameBodySelector, { strict: true }));
   if (!child)
     return { full: [] };
   try {
-    return await snapshotFrameForAI(progress, child.frame, options);
+    const result = await snapshotFrameForAI(progress, child.frame, options);
+    return { full: result.full, incremental: result.incremental, selectorResolved: result.selectorResolved };
   } catch {
     return { full: [] };
   }

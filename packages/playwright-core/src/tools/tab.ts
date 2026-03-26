@@ -502,9 +502,19 @@ export class Tab extends EventEmitter<TabEventsInterface> {
 
           // T2: filtered MutationObserver quiescence
           if (mode === 'thorough') {
-            const root = rootSelector
-              ? document.querySelector(rootSelector) ?? document.body
-              : document.body;
+            let root: Element | null = null;
+            if (rootSelector) {
+              root = document.querySelector(rootSelector);
+              if (!root) {
+                for (const iframe of document.querySelectorAll('iframe')) {
+                  try {
+                    root = iframe.contentDocument?.querySelector(rootSelector) ?? null;
+                    if (root) break;
+                  } catch { /* cross-origin — skip */ }
+                }
+              }
+            }
+            if (!root) root = document.body;
             await new Promise<void>(resolve => {
               let quietTimer: ReturnType<typeof setTimeout>;
               const maxTimer = setTimeout(() => {
@@ -664,6 +674,11 @@ export class Tab extends EventEmitter<TabEventsInterface> {
         const { resolvedSelector } = await locator._resolveSelector();
         return { locator, resolved: asLocator('javascript', resolvedSelector) };
       } catch (e) {
+        const meta = this._refMetadata.get(param.ref);
+        if (meta) {
+          const desc = meta.name ? `${meta.role} '${meta.name}'` : meta.role;
+          throw new Error(`ref ${param.ref} found — No element match for ${desc}. Try capturing new snapshot.`);
+        }
         throw new Error(`Ref ${param.ref} not found in the current page snapshot. Try capturing new snapshot.`);
       }
     }));

@@ -52,7 +52,7 @@ export class Response {
   private _snapshotSelector: string | undefined;
   private _snapshotMode: SnapshotMode | undefined;
   private _clientId: string;
-  private _snapshotWaitFor?: { text?: string; textGone?: string; selector?: string };
+  private _snapshotWaitFor?: { text?: string; textGone?: string; selector?: string; within?: string };
 
   readonly toolName: string;
   readonly toolArgs: Record<string, any>;
@@ -126,7 +126,7 @@ export class Response {
     this._code.push(code);
   }
 
-  setSnapshotWaitFor(waitFor: { text?: string; textGone?: string; selector?: string } | undefined) {
+  setSnapshotWaitFor(waitFor: { text?: string; textGone?: string; selector?: string; within?: string } | undefined) {
     this._snapshotWaitFor = waitFor;
   }
 
@@ -264,7 +264,16 @@ export class Response {
             ...(within ? { within } : {}),
           }, () => tab.page.waitForFunction(
             ([text, within]: [string, string | undefined]) => {
-              const root = within ? document.querySelector(within) : document.body;
+              let root: Element | null = within ? document.querySelector(within) : null;
+              if (within && !root) {
+                for (const iframe of document.querySelectorAll('iframe')) {
+                  try {
+                    root = iframe.contentDocument?.querySelector(within) ?? null;
+                    if (root) break;
+                  } catch { /* cross-origin — skip */ }
+                }
+              }
+              if (!root) root = document.body;
               return root?.innerText?.includes(text) ?? false;
             },
             [this._snapshotWaitFor!.text!, within] as [string, string | undefined],
@@ -277,7 +286,16 @@ export class Response {
             ...(within ? { within } : {}),
           }, () => tab.page.waitForFunction(
             ([text, within]: [string, string | undefined]) => {
-              const root = within ? document.querySelector(within) : document.body;
+              let root: Element | null = within ? document.querySelector(within) : null;
+              if (within && !root) {
+                for (const iframe of document.querySelectorAll('iframe')) {
+                  try {
+                    root = iframe.contentDocument?.querySelector(within) ?? null;
+                    if (root) break;
+                  } catch { /* cross-origin — skip */ }
+                }
+              }
+              if (!root) root = document.body;
               return !(root?.innerText?.includes(text) ?? false);
             },
             [this._snapshotWaitFor!.textGone!, within] as [string, string | undefined],
@@ -301,6 +319,8 @@ export class Response {
     const tabSnapshot = hasTab ? await this._context.currentTabOrDie().captureSnapshot(this._clientWorkspace, { rootSelector: this._snapshotSelector, clientId: this._clientId }) : undefined;
     if (tabSnapshot?.selectorResolved === false && this._snapshotSelector)
       resultContent.push(`snapshotSelector '${this._snapshotSelector}' matched no elements — returning full page snapshot`);
+    if (tabSnapshot?.selectorResolved === true && this._snapshotSelector)
+      resultContent.push(`selectorResolved: true — snapshotSelector '${this._snapshotSelector}' matched`);
     requestDebug('tool=%s snapshot=%s hasTab=%s', this.toolName, this._includeSnapshot, hasTab);
     const tabHeaders = await Promise.all(this._context.tabs().map(tab => tab.headerSnapshot()));
     if (this._includeSnapshot !== 'none' || tabHeaders.some(header => header.changed)) {
