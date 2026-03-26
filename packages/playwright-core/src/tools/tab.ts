@@ -422,18 +422,83 @@ export class Tab extends EventEmitter<TabEventsInterface> {
     await this._initializedPromise;
     const interactableOnly = this.context.config.snapshot?.interactableOnly;
     const settleMode = this.context.config.snapshot?.settleMode ?? 'quick';
+    const gatesEnabled = this.context.config.snapshot?.gatesEnabled ?? true;
+    const gateTimeoutMs = this.context.config.snapshot?.gateTimeoutMs ?? 2000;
     const rootSelector = options?.rootSelector;
     let tabSnapshot: TabSnapshot | undefined;
     const modalStates = await this._raceAgainstModalStates(async () => {
       // Settle before snapshot: wait for framework re-renders to complete
       if (settleMode !== 'none') {
         const quietMs = this.context.config.snapshot?.settleQuietMs ?? 150;
-        await this.page.evaluate(async ({ mode, quietMs, rootSelector }) => {
+        const settleResult = await this.page.evaluate(async ({ mode, quietMs, rootSelector, gatesEnabled, gateTimeoutMs }) => {
+          const t0 = performance.now();
+          const gateResults: Record<string, string> = { nav: 'skip', vt: 'skip', ariaBusy: 'skip' };
+
+          if (gatesEnabled) {
+            // Gate 1: Navigation API transition
+            if (typeof (globalThis as any).navigation !== 'undefined' && (globalThis as any).navigation.transition) {
+              gateResults.nav = 'active';
+              await Promise.race([
+                (globalThis as any).navigation.transition.finished.then(() => 'finished'),
+                new Promise(r => setTimeout(() => r('timeout'), gateTimeoutMs)),
+              ]);
+              gateResults.nav = 'cleared';
+            } else {
+              gateResults.nav = 'inactive';
+            }
+
+            // Gate 2: View Transitions API
+            try {
+              if (document.documentElement.matches?.(':active-view-transition')) {
+                gateResults.vt = 'active';
+                await Promise.race([
+                  new Promise<void>(resolve => {
+                    const check = () => {
+                      if (!document.documentElement.matches(':active-view-transition'))
+                        return resolve();
+                      requestAnimationFrame(check);
+                    };
+                    requestAnimationFrame(check);
+                  }),
+                  new Promise(r => setTimeout(() => r('timeout'), gateTimeoutMs)),
+                ]);
+                gateResults.vt = 'cleared';
+              } else {
+                gateResults.vt = 'inactive';
+              }
+            } catch {
+              // :active-view-transition not supported in this browser
+              gateResults.vt = 'unsupported';
+            }
+
+            // Gate 3: aria-busy
+            if (document.querySelector('[aria-busy="true"]')) {
+              gateResults.ariaBusy = 'active';
+              await Promise.race([
+                new Promise<void>(resolve => {
+                  const mo = new MutationObserver(() => {
+                    if (!document.querySelector('[aria-busy="true"]')) {
+                      mo.disconnect(); resolve();
+                    }
+                  });
+                  mo.observe(document.body, { attributes: true, subtree: true, attributeFilter: ['aria-busy'] });
+                }),
+                new Promise(r => setTimeout(() => r('timeout'), gateTimeoutMs)),
+              ]);
+              gateResults.ariaBusy = 'cleared';
+            } else {
+              gateResults.ariaBusy = 'inactive';
+            }
+          }
+
+          const gateMs = performance.now() - t0;
+
           // T1: drain microtask queue + double rAF
           await Promise.resolve();
           await new Promise<void>(r =>
             requestAnimationFrame(() => requestAnimationFrame(() => r()))
           );
+
           // T2: filtered MutationObserver quiescence
           if (mode === 'thorough') {
             const root = rootSelector
@@ -477,7 +542,25 @@ export class Tab extends EventEmitter<TabEventsInterface> {
               }, quietMs);
             });
           }
-        }, { mode: settleMode, quietMs, rootSelector });
+
+          const settleMs = performance.now() - t0;
+          return { gateMs, settleMs, gateResults };
+        }, { mode: settleMode, quietMs, rootSelector, gatesEnabled, gateTimeoutMs });
+
+        // Log gate telemetry server-side
+        if (gatesEnabled && settleResult) {
+          this.context.perfLog.timeAsync({
+            phase: 'snapshot', step: 'settle-gates',
+            side: 'chrome',
+            target_ms: gateTimeoutMs,
+            gate_nav: settleResult.gateResults.nav,
+            gate_vt: settleResult.gateResults.vt,
+            gate_aria_busy: settleResult.gateResults.ariaBusy,
+            gate_ms: settleResult.gateMs,
+            settle_ms: settleResult.settleMs,
+            settle_mode: settleMode,
+          }, async () => {});
+        }
       }
 
       const snapshot = await this.context.perfLog.timeAsync({

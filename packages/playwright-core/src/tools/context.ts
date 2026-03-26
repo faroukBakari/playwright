@@ -62,6 +62,11 @@ export type ContextConfig = {
     mode?: 'incremental' | 'full' | 'none';
     maxChars?: number;
     interactableOnly?: boolean;
+    settleMode?: 'none' | 'quick' | 'thorough';
+    settleQuietMs?: number;
+    gatesEnabled?: boolean;
+    gateTimeoutMs?: number;
+    waitForTimeout?: number;
   };
   testIdAttribute?: string;
   timeouts?: {

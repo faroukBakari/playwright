@@ -52,6 +52,7 @@ export class Response {
   private _snapshotSelector: string | undefined;
   private _snapshotMode: SnapshotMode | undefined;
   private _clientId: string;
+  private _snapshotWaitFor?: { text?: string; textGone?: string; selector?: string };
 
   readonly toolName: string;
   readonly toolArgs: Record<string, any>;
@@ -123,6 +124,10 @@ export class Response {
 
   addCode(code: string) {
     this._code.push(code);
+  }
+
+  setSnapshotWaitFor(waitFor: { text?: string; textGone?: string; selector?: string } | undefined) {
+    this._snapshotWaitFor = waitFor;
   }
 
   setIncludeSnapshot(mode?: SnapshotMode, selector?: string, fileName?: string) {
@@ -241,6 +246,49 @@ export class Response {
     // Always capture when a tab exists — keeps baseline advancing for future diffs.
     // The mode only controls what appears in the response, not whether we capture.
     const hasTab = !!this._context.currentTab();
+
+    // Execute snapshotWaitFor condition before capture
+    if (this._snapshotWaitFor && hasTab) {
+      const tab = this._context.currentTabOrDie();
+      const waitForTimeout = Math.min(
+        this._context.config.snapshot?.waitForTimeout ?? 3000,
+        this._context.remainingBudget()
+      );
+      const perf = this._context.perfLog;
+      try {
+        if (this._snapshotWaitFor.text) {
+          await perf.timeAsync({
+            phase: 'snapshot', step: 'snapshotWaitFor', side: 'chrome',
+            target_ms: waitForTimeout, condition: 'text', value: this._snapshotWaitFor.text,
+          }, () => tab.page.waitForFunction(
+            (text: string) => document.body?.innerText?.includes(text),
+            this._snapshotWaitFor!.text!,
+            { timeout: waitForTimeout }
+          ));
+        } else if (this._snapshotWaitFor.textGone) {
+          await perf.timeAsync({
+            phase: 'snapshot', step: 'snapshotWaitFor', side: 'chrome',
+            target_ms: waitForTimeout, condition: 'textGone', value: this._snapshotWaitFor.textGone,
+          }, () => tab.page.waitForFunction(
+            (text: string) => !document.body?.innerText?.includes(text),
+            this._snapshotWaitFor!.textGone!,
+            { timeout: waitForTimeout }
+          ));
+        } else if (this._snapshotWaitFor.selector) {
+          await perf.timeAsync({
+            phase: 'snapshot', step: 'snapshotWaitFor', side: 'chrome',
+            target_ms: waitForTimeout, condition: 'selector', value: this._snapshotWaitFor.selector,
+          }, () => tab.page.waitForSelector(this._snapshotWaitFor!.selector!, { timeout: waitForTimeout }));
+        }
+      } catch (e) {
+        // Timeout is not fatal — capture snapshot anyway with current state
+        if (e instanceof Error && e.name === 'TimeoutError')
+          this._results.push(`snapshotWaitFor timed out after ${waitForTimeout}ms — snapshot shows current state`);
+        else
+          throw e;
+      }
+    }
+
     const tabSnapshot = hasTab ? await this._context.currentTabOrDie().captureSnapshot(this._clientWorkspace, { rootSelector: this._snapshotSelector, clientId: this._clientId }) : undefined;
     requestDebug('tool=%s snapshot=%s hasTab=%s', this.toolName, this._includeSnapshot, hasTab);
     const tabHeaders = await Promise.all(this._context.tabs().map(tab => tab.headerSnapshot()));

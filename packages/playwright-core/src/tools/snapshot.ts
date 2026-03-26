@@ -48,6 +48,11 @@ export const snapshotOptionsSchema = z.object({
   clientId: z.string().uuid().optional().describe('Persistent client identity for diff baseline continuity. Pass the clientId from your first tool response on all subsequent calls, including after resume.'),
   includeSnapshot: z.enum(['none', 'diff', 'full']).optional().describe('Control snapshot in response: "none" to suppress, "diff" for incremental diff, "full" for complete snapshot'),
   snapshotSelector: z.string().optional().describe('CSS selector to scope the snapshot to a DOM subtree (e.g. "main", ".content"). Only elements within the matched subtree appear in the snapshot. Refs from prior full-page snapshots remain valid.'),
+  snapshotWaitFor: z.object({
+    text: z.string().optional().describe('Wait for text to appear in page before snapshot'),
+    textGone: z.string().optional().describe('Wait for text to disappear before snapshot'),
+    selector: z.string().optional().describe('Wait for CSS selector to exist before snapshot'),
+  }).optional().describe('Wait condition before capturing snapshot. Eliminates the need for a separate browser_wait_for + browser_snapshot sequence. Capped at configured timeout (default 3s).'),
   ...consoleOptionsSchema.shape,
 });
 

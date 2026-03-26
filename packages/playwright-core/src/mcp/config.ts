@@ -82,7 +82,7 @@ export const DEFAULT_TIMEOUT_MATRIX: TimeoutMatrix = {
   budget: { default: 5000, navigate: 15000, runCode: 30000 },
   playwright: { action: 5000, navigation: 60000, expect: 5000 },
   settle: {
-    postActionDelay: 100,
+    postActionDelay: 30,
     navigationLoad: 5000,
     networkRace: 3000,
     postSettlement: 10,
@@ -115,7 +115,7 @@ export const defaultConfig: FullConfig = {
   },
   timeoutMatrix: DEFAULT_TIMEOUT_MATRIX,
   performance: {
-    postActionDelay: 100,
+    postActionDelay: 30,
     postSettlementDelay: 10,
     networkRaceTimeout: 3000,
     navigationLoadState: 'domcontentloaded' as const,
@@ -126,6 +126,13 @@ export const defaultConfig: FullConfig = {
     waitFastPollRetries: 5,
     waitDefaultTimeout: 3000,
     waitMaxTimeout: 30000,
+  },
+  snapshot: {
+    settleMode: 'quick' as const,
+    settleQuietMs: 150,
+    gatesEnabled: true,
+    gateTimeoutMs: 2000,
+    waitForTimeout: 3000,
   },
 };
 
@@ -363,6 +370,21 @@ export function configFromEnv(): Config & { configFile?: string } {
   const snapshotInteractableOnly = envToBoolean(process.env.PLAYWRIGHT_MCP_SNAPSHOT_INTERACTABLE_ONLY);
   if (snapshotInteractableOnly !== undefined)
     config.snapshot = { ...config.snapshot, interactableOnly: snapshotInteractableOnly };
+  const snapshotSettleMode = process.env.PLAYWRIGHT_MCP_SNAPSHOT_SETTLE_MODE;
+  if (snapshotSettleMode !== undefined)
+    config.snapshot = { ...config.snapshot, settleMode: enumParser('--snapshot-settle-mode', ['none', 'quick', 'thorough'], snapshotSettleMode) };
+  const snapshotSettleQuietMs = numberParser(process.env.PLAYWRIGHT_MCP_SNAPSHOT_SETTLE_QUIET_MS);
+  if (snapshotSettleQuietMs !== undefined)
+    config.snapshot = { ...config.snapshot, settleQuietMs: snapshotSettleQuietMs };
+  const snapshotGatesEnabled = envToBoolean(process.env.PLAYWRIGHT_MCP_SNAPSHOT_GATES_ENABLED);
+  if (snapshotGatesEnabled !== undefined)
+    config.snapshot = { ...config.snapshot, gatesEnabled: snapshotGatesEnabled };
+  const snapshotGateTimeoutMs = numberParser(process.env.PLAYWRIGHT_MCP_SNAPSHOT_GATE_TIMEOUT_MS);
+  if (snapshotGateTimeoutMs !== undefined)
+    config.snapshot = { ...config.snapshot, gateTimeoutMs: snapshotGateTimeoutMs };
+  const snapshotWaitForTimeout = numberParser(process.env.PLAYWRIGHT_MCP_SNAPSHOT_WAIT_FOR_TIMEOUT);
+  if (snapshotWaitForTimeout !== undefined)
+    config.snapshot = { ...config.snapshot, waitForTimeout: snapshotWaitForTimeout };
 
   // Evaluate env var overrides
   const evalMaxResultLength = numberParser(process.env.PLAYWRIGHT_MCP_EVAL_MAX_RESULT_LENGTH);

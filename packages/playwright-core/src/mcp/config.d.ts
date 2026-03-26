@@ -268,6 +268,41 @@ export type Config = {
      * containers are filtered out. Reduces snapshot size by 50-80% on complex pages.
      */
     interactableOnly?: boolean;
+
+    /**
+     * Settling strategy before snapshot capture.
+     * - 'none' (T0): no settling — immediate snapshot
+     * - 'quick' (T1): microtask drain + double rAF (~32ms) — catches framework re-renders
+     * - 'thorough' (T2): T1 + filtered MutationObserver quiescence
+     * Defaults to 'quick'.
+     */
+    settleMode?: 'none' | 'quick' | 'thorough';
+
+    /**
+     * Quiet window (ms) for the MutationObserver in 'thorough' mode.
+     * The observer resolves after no meaningful mutations for this duration.
+     * Defaults to 150.
+     */
+    settleQuietMs?: number;
+
+    /**
+     * Enable negative gates (Navigation API, View Transitions, aria-busy)
+     * that detect in-progress transitions before snapshot capture.
+     * Defaults to true.
+     */
+    gatesEnabled?: boolean;
+
+    /**
+     * Maximum time (ms) to wait for any single gate to clear.
+     * Defaults to 2000.
+     */
+    gateTimeoutMs?: number;
+
+    /**
+     * Maximum timeout (ms) for the snapshotWaitFor parameter on action tools.
+     * Defaults to 3000.
+     */
+    waitForTimeout?: number;
   };
 
   /**

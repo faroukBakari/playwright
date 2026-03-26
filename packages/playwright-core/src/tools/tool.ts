@@ -77,8 +77,12 @@ export function defineTabTool<Input extends z.Schema>(tool: TabTool<Input>): Too
         response.addError(`Error: The tool "${tool.schema.name}" can only be used when there is related modal state present.`);
       else if (!tool.clearsModalState && modalStates.length)
         response.addError(`Error: Tool "${tool.schema.name}" does not handle the modal state.`);
-      else
-        return tool.handle(tab, params, response);
+      else {
+        await tool.handle(tab, params, response);
+        // Pass snapshotWaitFor from tool params to response for pre-snapshot waiting
+        if ((params as any).snapshotWaitFor)
+          response.setSnapshotWaitFor((params as any).snapshotWaitFor);
+      }
     },
   };
 }
