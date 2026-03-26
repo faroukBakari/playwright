@@ -328,8 +328,14 @@ export class InjectedScript {
         incremental = renderAriaTree(ariaSnapshot, options, previousSnapshot, options.interactableOnly ? filterStats : undefined);
       this._lastAriaSnapshotForTrack.set(options.track, ariaSnapshot);
     }
-    if (!options.rootSelector)
+    if (options.rootSelector && this._lastAriaSnapshotForQuery) {
+      for (const [ref, element] of ariaSnapshot.elements)
+        this._lastAriaSnapshotForQuery.elements.set(ref, element);
+      for (const [element, ref] of ariaSnapshot.refs)
+        this._lastAriaSnapshotForQuery.refs.set(element, ref);
+    } else if (!options.rootSelector) {
       this._lastAriaSnapshotForQuery = ariaSnapshot;
+    }
     return { full, incremental, iframeRefs: ariaSnapshot.iframeRefs, filterStats: options.interactableOnly ? filterStats : undefined, selectorResolved };
   }
 

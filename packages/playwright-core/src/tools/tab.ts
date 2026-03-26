@@ -35,6 +35,8 @@ import type { Page } from '../client/page';
 import type { Locator } from '../client/locator';
 import type * as playwright from '../../types/types';
 
+const debugRefRecovery = debug('pw:mcp:ref-recovery');
+
 const TabEvents = {
   modalState: 'modalState'
 };
@@ -107,6 +109,7 @@ export class Tab extends EventEmitter<TabEventsInterface> {
   private _actionTimeoutCeiling: number | undefined;
   private _navigationTimeoutCeiling: number | undefined;
   private _expectTimeoutCeiling: number | undefined;
+  private _refMetadata = new Map<string, { role: string, name: string }>();
 
   constructor(context: Context, page: playwright.Page, onPageClose: (tab: Tab) => void) {
     super();
@@ -418,9 +421,65 @@ export class Tab extends EventEmitter<TabEventsInterface> {
   async captureSnapshot(relativeTo: string | undefined, options?: { rootSelector?: string; clientId?: string }): Promise<TabSnapshot> {
     await this._initializedPromise;
     const interactableOnly = this.context.config.snapshot?.interactableOnly;
+    const settleMode = this.context.config.snapshot?.settleMode ?? 'quick';
     const rootSelector = options?.rootSelector;
     let tabSnapshot: TabSnapshot | undefined;
     const modalStates = await this._raceAgainstModalStates(async () => {
+      // Settle before snapshot: wait for framework re-renders to complete
+      if (settleMode !== 'none') {
+        const quietMs = this.context.config.snapshot?.settleQuietMs ?? 150;
+        await this.page.evaluate(async ({ mode, quietMs, rootSelector }) => {
+          // T1: drain microtask queue + double rAF
+          await Promise.resolve();
+          await new Promise<void>(r =>
+            requestAnimationFrame(() => requestAnimationFrame(() => r()))
+          );
+          // T2: filtered MutationObserver quiescence
+          if (mode === 'thorough') {
+            const root = rootSelector
+              ? document.querySelector(rootSelector) ?? document.body
+              : document.body;
+            await new Promise<void>(resolve => {
+              let quietTimer: ReturnType<typeof setTimeout>;
+              const maxTimer = setTimeout(() => {
+                observer.disconnect(); resolve();
+              }, Math.max(quietMs * 4, 1000));
+              const observer = new MutationObserver(mutations => {
+                const meaningful = mutations.some(m => {
+                  if (m.type === 'childList') {
+                    for (const node of m.addedNodes) {
+                      if (node.nodeType === 1) {
+                        const tag = (node as Element).tagName;
+                        if (tag !== 'SCRIPT' && tag !== 'STYLE'
+                            && tag !== 'LINK' && tag !== 'IMG')
+                          return true;
+                      }
+                    }
+                    return m.removedNodes.length > 0;
+                  }
+                  if (m.type === 'attributes')
+                    return !m.attributeName?.startsWith('data-analytics')
+                        && !m.attributeName?.startsWith('data-track');
+                  return true;
+                });
+                if (!meaningful) return;
+                clearTimeout(quietTimer);
+                quietTimer = setTimeout(() => {
+                  observer.disconnect(); clearTimeout(maxTimer); resolve();
+                }, quietMs);
+              });
+              observer.observe(root, {
+                childList: true, subtree: true,
+                attributes: true, characterData: true,
+              });
+              quietTimer = setTimeout(() => {
+                observer.disconnect(); clearTimeout(maxTimer); resolve();
+              }, quietMs);
+            });
+          }
+        }, { mode: settleMode, quietMs, rootSelector });
+      }
+
       const snapshot = await this.context.perfLog.timeAsync({
         phase: 'snapshot', step: 'capture', side: 'chrome',
         target_ms: 8000,
@@ -436,6 +495,7 @@ export class Tab extends EventEmitter<TabEventsInterface> {
         modalStates: [],
         events: [],
       };
+      this._parseRefMetadata(snapshot.full);
     });
     if (tabSnapshot) {
       tabSnapshot.consoleLink = await this._consoleLog.take(relativeTo);
@@ -482,7 +542,31 @@ export class Tab extends EventEmitter<TabEventsInterface> {
 
   async refLocator(params: { element?: string, ref: string }): Promise<{ locator: Locator, resolved: string }> {
     await this._initializedPromise;
-    return (await this.refLocators([params]))[0];
+    try {
+      return (await this.refLocators([params]))[0];
+    } catch (firstError) {
+      // Save stale ref metadata before re-snapshot clears it
+      const staleRefMeta = this._refMetadata.get(params.ref);
+      // Re-snapshot to refresh the element map (no event side effects)
+      debugRefRecovery('stale ref=%s — re-snapshotting (meta: role=%s name=%s)', params.ref, staleRefMeta?.role, staleRefMeta?.name?.slice(0, 50));
+      const interactableOnly = this.context.config.snapshot?.interactableOnly;
+      const snapshot = await this.page._snapshotForAI({
+        track: `response-${this.context.id}`,
+        interactableOnly,
+      });
+      this._parseRefMetadata(snapshot.full);
+      // Restore stale ref metadata for fallback (re-snapshot won't contain it)
+      if (staleRefMeta)
+        this._refMetadata.set(params.ref, staleRefMeta);
+      try {
+        const result = (await this.refLocators([params]))[0];
+        debugRefRecovery('retry succeeded for ref=%s', params.ref);
+        return result;
+      } catch {
+        debugRefRecovery('retry failed for ref=%s — trying role+name fallback', params.ref);
+        return await this._refFallbackByRoleName(params, firstError as Error);
+      }
+    }
   }
 
   async refLocators(params: { element?: string, ref: string }[]): Promise<{ locator: Locator, resolved: string }[]> {
@@ -498,6 +582,40 @@ export class Tab extends EventEmitter<TabEventsInterface> {
         throw new Error(`Ref ${param.ref} not found in the current page snapshot. Try capturing new snapshot.`);
       }
     }));
+  }
+
+  private _parseRefMetadata(snapshotText: string) {
+    // Do NOT clear — stale ref metadata must survive for the role+name fallback.
+    // captureSnapshot() is called on every Response (even includeSnapshot:'none'),
+    // so clearing would wipe metadata for refs that went stale between snapshots.
+    // Snapshot format: "- role "name" [attr] [ref=eNN] [cursor=pointer]"
+    // Name is JSON.stringify'd (double-quoted) or regex (/pattern/). Optional.
+    // Attributes appear between name and [ref=...]. [ref=...] is always last before optional [cursor=pointer].
+    const refPattern = /- (\w+)(?:\s+"((?:[^"\\]|\\.)*)")?\s*(?:\[[^\]]*\]\s*)*\[ref=(\w+)\]/g;
+    let match;
+    while ((match = refPattern.exec(snapshotText)) !== null) {
+      const [, role, name, ref] = match;
+      this._refMetadata.set(ref, { role, name: name ?? '' });
+    }
+  }
+
+  private async _refFallbackByRoleName(params: { element?: string, ref: string }, originalError: Error): Promise<{ locator: Locator, resolved: string }> {
+    const meta = this._refMetadata.get(params.ref);
+    if (!meta?.name) {
+      debugRefRecovery('fallback skip: ref=%s has no name metadata', params.ref);
+      throw originalError;
+    }
+    const locator = this.page.getByRole(meta.role as any, { name: meta.name, exact: true });
+    const count = await locator.count();
+    if (count !== 1) {
+      debugRefRecovery('fallback skip: ref=%s role=%s name=%s matched %d elements (need exactly 1)', params.ref, meta.role, meta.name.slice(0, 50), count);
+      throw originalError;
+    }
+    if (params.element)
+      locator.describe(params.element);
+    const { resolvedSelector } = await locator._resolveSelector();
+    debugRefRecovery('fallback succeeded: ref=%s → role=%s name=%s', params.ref, meta.role, meta.name.slice(0, 50));
+    return { locator, resolved: asLocator('javascript', resolvedSelector) };
   }
 
   async waitForTimeout(time: number) {
