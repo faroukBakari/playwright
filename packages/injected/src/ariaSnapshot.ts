@@ -64,7 +64,7 @@ function toInternalOptions(options: AriaTreeOptions): InternalOptions {
       refPrefix: options.refPrefix,
       includeGenericRole: true,
       renderActive: !options.doNotRenderActive,
-      renderCursorPointer: true,
+      renderCursorPointer: false,
       interactableOnly: options.interactableOnly,
     };
   }
@@ -654,11 +654,15 @@ export function renderAriaTree(ariaSnapshot: AriaSnapshot, publicOptions: AriaTr
       if (renderCursorPointer && aria.hasPointerCursor(ariaNode))
         key += ' [cursor=pointer]';
     }
+    // Inline URL on the role line instead of rendering as a child prop line.
+    if (ariaNode.props['url'])
+      key += ` [url=${ariaNode.props['url']}]`;
     return key;
   };
 
   const getSingleInlinedTextChild = (ariaNode: aria.AriaNode | undefined): string | undefined => {
-    return ariaNode?.children.length === 1 && typeof ariaNode.children[0] === 'string' && !Object.keys(ariaNode.props).length ? ariaNode.children[0] : undefined;
+    const propsCount = ariaNode ? Object.keys(ariaNode.props).filter(k => k !== 'url').length : 0;
+    return ariaNode?.children.length === 1 && typeof ariaNode.children[0] === 'string' && !propsCount ? ariaNode.children[0] : undefined;
   };
 
   const visit = (ariaNode: aria.AriaNode, indent: string, renderCursorPointer: boolean) => {
@@ -676,6 +680,15 @@ export function renderAriaTree(ariaSnapshot: AriaSnapshot, publicOptions: AriaTr
     // Replace the whole subtree with a single reference when possible.
     if (statusMap.get(ariaNode) === 'same' && ariaNode.ref) {
       lines.push(indent + `- ref=${ariaNode.ref} [unchanged]`);
+      return;
+    }
+
+    // Collapse structural wrappers: generic nodes with no name, no ref, no props,
+    // and exactly one child element — promote the child to this indent level.
+    if (ariaNode.role === 'generic' && !ariaNode.name && !ariaNode.ref &&
+        !Object.keys(ariaNode.props).length && ariaNode.children.length === 1 &&
+        typeof ariaNode.children[0] !== 'string') {
+      visit(ariaNode.children[0] as aria.AriaNode, indent, renderCursorPointer);
       return;
     }
 
@@ -697,10 +710,13 @@ export function renderAriaTree(ariaSnapshot: AriaSnapshot, publicOptions: AriaTr
     } else {
       // Node with (optional) props and some children.
       lines.push(escapedKey + ':');
-      for (const [name, value] of Object.entries(ariaNode.props))
-        lines.push(indent + '  - /' + name + ': ' + yamlEscapeValueIfNeeded(value));
+      for (const [name, value] of Object.entries(ariaNode.props)) {
+        if (name === 'url')
+          continue;  // URL is inlined on the role line.
+        lines.push(indent + ' - /' + name + ': ' + yamlEscapeValueIfNeeded(value));
+      }
 
-      const childIndent = indent + '  ';
+      const childIndent = indent + ' ';
       const inCursorPointer = !!ariaNode.ref && renderCursorPointer && aria.hasPointerCursor(ariaNode);
       for (const child of ariaNode.children) {
         if (typeof child === 'string')
