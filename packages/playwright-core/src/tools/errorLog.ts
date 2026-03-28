@@ -28,6 +28,8 @@ export interface ErrorEntry {
   callId?: string;
   error: string;
   stack?: string;
+  timeout_ms?: number;
+  actual_ms?: number;
 }
 
 export class ErrorLog {
@@ -42,7 +44,7 @@ export class ErrorLog {
 
   setSession(sessionId: string) { this._sessionId = sessionId; }
 
-  log(tool: string, callId: string | undefined, error: unknown) {
+  log(tool: string, callId: string | undefined, error: unknown, extras?: { timeout_ms?: number; actual_ms?: number }) {
     const entry: ErrorEntry = {
       ts: new Date().toISOString(),
       sid: this._sessionId,
@@ -50,6 +52,8 @@ export class ErrorLog {
       callId,
       error: String(error),
       stack: error instanceof Error ? error.stack : undefined,
+      timeout_ms: extras?.timeout_ms,
+      actual_ms: extras?.actual_ms,
     };
     errorDebug('%o', entry);
     this._ensureStream();

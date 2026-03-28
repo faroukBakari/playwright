@@ -10,8 +10,6 @@
 
 import { z } from '../mcpBundle';
 import { defineTool } from './tool';
-import { relayHttpUrl } from '../mcp/extensionContextFactory';
-
 const createTab = defineTool({
   capability: 'core-tabs',
 
@@ -26,10 +24,17 @@ const createTab = defineTool({
   },
 
   handle: async (context, params, response) => {
-    if (!relayHttpUrl)
+    if (!context.relayHttpUrl)
       throw new Error('browser_create_tab requires extension mode (--extension flag).');
 
-    const fetchResponse = await fetch(`${relayHttpUrl}/tabs/create`, {
+    // Ensure BrowserContext exists so the 'page' event listener is registered.
+    // Without this, CDP Target.attachedToTarget events are silently dropped
+    // and the Page never materializes.
+    await context.ensureBrowserContext();
+
+    const tabCountBefore = context.tabs().length;
+
+    const fetchResponse = await fetch(`${context.relayHttpUrl}/tabs/create`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -45,6 +50,15 @@ const createTab = defineTool({
     }
 
     const result = await fetchResponse.json();
+
+    // Wait for the Page to materialize via CDP event routing.
+    const deadline = Date.now() + 10000;
+    while (context.tabs().length <= tabCountBefore && Date.now() < deadline)
+      await new Promise(r => setTimeout(r, 100));
+
+    if (context.tabs().length <= tabCountBefore)
+      throw new Error(`Tab ${result.tabId} created but Playwright page did not materialize — CDP event routing may be broken for this session. Try restarting the server.`);
+
     response.addTextResult(`Created tab ${result.tabId}.\nURL: ${result.url}`);
   },
 });

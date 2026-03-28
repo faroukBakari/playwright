@@ -238,11 +238,14 @@ export class BrowserServerBackend implements ServerBackend {
     const response = new Response(context, name, parsedArguments, cwd, snapshotSelector, snapshotMode);
     context.setRunningTool(name);
     context.setDeadline(timeoutMs);
+    const hasPage = !!context.currentTab();
+    const pageUrl = hasPage ? context.currentTab()!.page.url() : undefined;
+    serverLog('info', `[${name}] callId=${callId} session=${sessionId ?? 'default'} tabs=${context.tabs().length} currentTab=${hasPage ? pageUrl : 'none'} timeout=${timeoutMs}ms`);
     let responseObject: mcpServer.CallToolResult;
     const toolStart = performance.now();
     try {
       responseObject = await context.perfLog.timeAsync(
-        { phase: 'tool', step: 'e2e', side: 'server', target_ms: 0 },
+        { phase: 'tool', step: 'e2e', side: 'server', target_ms: timeoutMs },
         async () => {
           const toolPromise = tool.handle(context, parsedArguments, response);
           let timedOut = false;
@@ -251,8 +254,14 @@ export class BrowserServerBackend implements ServerBackend {
           const timeoutPromise = new Promise<never>((_, reject) => {
             timeoutId = setTimeout(() => {
               timedOut = true;
-              serverLog('warn', `[${name}] Safety-net timeout fired after ${safetyNetMs}ms (inner deadline was ${timeoutMs}ms). Inner deadline propagation may have failed — check tool handler.`);
-              reject(new Error(`Tool "${name}" timed out after ${timeoutMs}ms (safety-net at ${safetyNetMs}ms — inner deadline should have fired first)`));
+              const stateHint = hasPage
+                ? `active page: ${pageUrl}`
+                : 'no active page — session may be stale or tab creation failed';
+              serverLog('warn', `[${name}] Safety-net timeout fired after ${safetyNetMs}ms (inner deadline was ${timeoutMs}ms). Session state: ${stateHint}. Inner deadline propagation may have failed — check tool handler.`);
+              const suggestion = hasPage
+                ? ''
+                : ' No active page in this session — try browser_create_tab or restart the server.';
+              reject(new Error(`Tool "${name}" timed out after ${timeoutMs}ms.${suggestion}`));
             }, safetyNetMs);
           });
 
@@ -286,7 +295,8 @@ export class BrowserServerBackend implements ServerBackend {
       if (elapsed > timeoutMs * 0.8)
         serverLog('warn', `[${name}] callId=${callId}: ${elapsed}ms / ${timeoutMs}ms (${Math.round(elapsed / timeoutMs * 100)}% of timeout)`);
     } catch (error: any) {
-      this._errorLog?.log(name, callId, error);
+      const elapsed = Math.round(performance.now() - toolStart);
+      this._errorLog?.log(name, callId, error, { timeout_ms: timeoutMs, actual_ms: elapsed });
       return {
         content: [{ type: 'text' as const, text: `### Error\n${String(error)}` }],
         isError: true,

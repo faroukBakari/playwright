@@ -67,6 +67,10 @@ export type TabTool<Input extends z.Schema = z.Schema> = {
   handle: (tab: Tab, params: z.output<Input>, response: Response) => Promise<void>;
 };
 
+function hasSnapshotWaitFor(params: unknown): params is { snapshotWaitFor: { text?: string; textGone?: string; selector?: string; within?: string } } {
+  return typeof params === 'object' && params !== null && 'snapshotWaitFor' in params && (params as any).snapshotWaitFor != null;
+}
+
 export function defineTabTool<Input extends z.Schema>(tool: TabTool<Input>): Tool<Input> {
   return {
     ...tool,
@@ -80,8 +84,8 @@ export function defineTabTool<Input extends z.Schema>(tool: TabTool<Input>): Too
       else {
         await tool.handle(tab, params, response);
         // Pass snapshotWaitFor from tool params to response for pre-snapshot waiting
-        if ((params as any).snapshotWaitFor)
-          response.setSnapshotWaitFor((params as any).snapshotWaitFor);
+        if (hasSnapshotWaitFor(params))
+          response.setSnapshotWaitFor(params.snapshotWaitFor);
       }
     },
   };

@@ -18,7 +18,7 @@ import fs from 'fs';
 import path from 'path';
 
 import { debug } from '../utilsBundle';
-import { renderModalStates, shouldIncludeMessage, consoleLevelForMessageType } from './tab';
+import { renderModalStates, shouldIncludeMessage, consoleLevelForMessageType } from './artifactCollector';
 import { scaleImageToFitMessage } from './screenshot';
 
 import type { TabHeader } from './tab';
@@ -339,11 +339,16 @@ export class Response {
     if (tabSnapshot && this._includeSnapshot !== 'none') {
       // For diff mode: empty string means "nothing changed" (distinct from undefined which means "no baseline").
       // undefined → fall back to full (first capture); empty string → emit no-changes marker.
+      // Exception: both ariaSnapshotDiff AND ariaSnapshot empty means content was removed
+      // (e.g. SPA navigation emptied a scoped element) — not a legitimate "no changes".
       let snapshot: string;
       if (this._includeSnapshot === 'full') {
         snapshot = tabSnapshot.ariaSnapshot;
       } else if (tabSnapshot.ariaSnapshotDiff !== undefined) {
-        snapshot = tabSnapshot.ariaSnapshotDiff || '[no changes]';
+        if (tabSnapshot.ariaSnapshotDiff === '' && !tabSnapshot.ariaSnapshot)
+          snapshot = '[empty page]';
+        else
+          snapshot = tabSnapshot.ariaSnapshotDiff || '[no changes]';
       } else {
         snapshot = tabSnapshot.ariaSnapshot;
       }

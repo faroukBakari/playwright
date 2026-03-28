@@ -16,7 +16,6 @@
 
 import { z } from '../mcpBundle';
 import { defineTool } from './tool';
-import { relayHttpUrl } from '../mcp/extensionContextFactory';
 
 const downloadFile = defineTool({
   capability: 'downloads',
@@ -32,12 +31,12 @@ const downloadFile = defineTool({
     type: 'action',
   },
 
-  handle: async (_context, params, response) => {
-    if (!relayHttpUrl)
+  handle: async (context, params, response) => {
+    if (!context.relayHttpUrl)
       throw new Error('Downloads require extension mode (Chrome bridge)');
 
     const timeoutMs = (params.timeout || 30) * 1000;
-    const fetchResponse = await fetch(`${relayHttpUrl}/downloads/file`, {
+    const fetchResponse = await fetch(`${context.relayHttpUrl}/downloads/file`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -79,11 +78,11 @@ const downloadList = defineTool({
     type: 'readOnly',
   },
 
-  handle: async (_context, params, response) => {
-    if (!relayHttpUrl)
+  handle: async (context, params, response) => {
+    if (!context.relayHttpUrl)
       throw new Error('Downloads require extension mode (Chrome bridge)');
 
-    const fetchResponse = await fetch(`${relayHttpUrl}/downloads/list`, {
+    const fetchResponse = await fetch(`${context.relayHttpUrl}/downloads/list`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

@@ -9,7 +9,6 @@
 
 import { z } from '../mcpBundle';
 import { defineTool } from './tool';
-import { relayHttpUrl } from '../mcp/extensionContextFactory';
 
 interface TabInfo {
   tabId: number;
@@ -21,10 +20,10 @@ interface TabInfo {
   attachedSessionId: string | null;
 }
 
-async function fetchTabs(): Promise<TabInfo[]> {
-  if (!relayHttpUrl)
+async function fetchTabs(relayUrl: string | undefined): Promise<TabInfo[]> {
+  if (!relayUrl)
     throw new Error('browser_list_tabs requires extension mode (--extension flag).');
-  const response = await fetch(`${relayHttpUrl}/tabs`, {
+  const response = await fetch(`${relayUrl}/tabs`, {
     signal: AbortSignal.timeout(5000),
   });
   if (!response.ok)
@@ -75,8 +74,8 @@ const listTabs = defineTool({
     type: 'readOnly',
   },
 
-  handle: async (_context, params, response) => {
-    const tabs = await fetchTabs();
+  handle: async (context, params, response) => {
+    const tabs = await fetchTabs(context.relayHttpUrl);
     const result = formatTabsTable(tabs, params.filter);
     response.addTextResult(result);
   },

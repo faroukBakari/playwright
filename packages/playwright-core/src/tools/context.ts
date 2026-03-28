@@ -132,6 +132,7 @@ export class Context {
   private _id: string = crypto.randomUUID();
   get id(): string { return this._id; }
   setClientId(id: string) { this._id = id; }
+  get relayHttpUrl(): string | undefined { return relayHttpUrl; }
   readonly config: ContextConfig;
   readonly sessionLog: SessionLog | undefined;
   readonly perfLog: PerfLog;
@@ -206,10 +207,10 @@ export class Context {
   async ensureTab(): Promise<Tab> {
     const browserContext = await this.ensureBrowserContext();
     if (!this._currentTab) {
-      if (relayHttpUrl) {
+      if (this.relayHttpUrl) {
         // Extension mode with deferred tab creation: request a tab via sideband.
         // The relay sends Target.attachedToTarget which triggers _onPageCreated.
-        await fetch(`${relayHttpUrl}/tabs/create`, {
+        await fetch(`${this.relayHttpUrl}/tabs/create`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ sessionId: this.id }),
@@ -411,9 +412,9 @@ export class Context {
    * active tab with a debugger attached. No-op in non-extension modes.
    */
   private async _recoverTabFromRegistry(): Promise<void> {
-    if (!relayHttpUrl || this._tabs.length === 0)
+    if (!this.relayHttpUrl || this._tabs.length === 0)
       return;
-    const response = await fetch(`${relayHttpUrl}/registry`, {
+    const response = await fetch(`${this.relayHttpUrl}/registry`, {
       signal: AbortSignal.timeout(3000),
     });
     if (!response.ok)
