@@ -80,7 +80,7 @@ export type CLIOptions = {
 
 export const DEFAULT_TIMEOUT_MATRIX: TimeoutMatrix = {
   budget: { default: 5000, navigate: 15000, runCode: 30000 },
-  playwright: { action: 5000, navigation: 60000, expect: 5000 },
+  playwright: { action: 5000, navigation: 30000, expect: 5000 },
   settle: {
     postActionDelay: 30,
     navigationLoad: 5000,

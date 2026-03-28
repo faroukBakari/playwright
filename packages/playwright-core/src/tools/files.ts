@@ -90,7 +90,7 @@ const UNC_RE = /^(?:\\\\|\/\/)/;
  *  3. Resolve relative paths against cwd
  *  4. Reject Windows-format paths with an actionable error
  */
-export function normalizePath(raw: string): string {
+function normalizePath(raw: string): string {
   // 1. Strip wrapping quotes and trim whitespace
   let p = raw.trim();
   if ((p.startsWith('"') && p.endsWith('"')) || (p.startsWith("'") && p.endsWith("'")))
@@ -127,7 +127,7 @@ export function normalizePath(raw: string): string {
 /**
  * Validate that all paths exist and are files, with clear error messages.
  */
-export async function validatePaths(paths: string[]): Promise<void> {
+async function validatePaths(paths: string[]): Promise<void> {
   for (const filePath of paths) {
     let stat: fs.Stats;
     try {
