@@ -353,7 +353,7 @@ export class CDPRelayServer {
           // Grace expired — NOW send detachTab
           debugLogger(`Per-session grace expired for ${expiredSessionId}`);
           if (this._extensionConnection) {
-            this._extensionConnection.send('detachTab', { sessionId: expiredSessionId }).catch(() => {});
+            this._extensionConnection.send('detachTab', { sessionId: expiredSessionId }).catch(e => serverLog('warn', `detachTab failed for expired session ${expiredSessionId}`, e));
           }
           // Move to dormant — session lives as long as the tab exists
           if (gracedData.tabId != null) {
@@ -369,7 +369,7 @@ export class CDPRelayServer {
 
       // If session had no tab binding (cdpSessionId null), do immediate cleanup as before
       if (!enteredGrace && session.cdpSessionId != null && this._extensionConnection) {
-        this._extensionConnection.send('detachTab', { sessionId }).catch(() => {});
+        this._extensionConnection.send('detachTab', { sessionId }).catch(e => serverLog('warn', `detachTab failed for session ${sessionId}`, e));
       }
 
       // If in extension grace and all clients gone — immediate disconnected
@@ -377,7 +377,7 @@ export class CDPRelayServer {
         this._stateMachine.cancelExtensionGrace();
         this._sessionGrace.cancelAll((sid: string, _graced: GracedSession) => {
           if (this._extensionConnection)
-            this._extensionConnection.send('detachTab', { sessionId: sid }).catch(() => {});
+            this._extensionConnection.send('detachTab', { sessionId: sid }).catch(e => serverLog('warn', `detachTab failed for session ${sid}`, e));
         });
         this._stateMachine.state = 'disconnected';
         debugLogger('Last client closed during extension grace — disconnected');
@@ -398,6 +398,7 @@ export class CDPRelayServer {
     });
     clientWs.on('error', error => {
       debugLogger('Playwright WebSocket error:', error);
+      serverLog('warn', `Playwright WebSocket error for session ${sessionId}`, error);
     });
   }
 

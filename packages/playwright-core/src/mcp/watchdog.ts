@@ -16,6 +16,7 @@
 
 import { gracefullyCloseAll, gracefullyCloseSet } from '../utils';
 import { serverLog, testDebug } from './log';
+import { getGlobalErrorLog } from '../tools/errorLog';
 
 export function setupExitWatchdog() {
   let isExiting = false;
@@ -43,6 +44,7 @@ export function setupExitWatchdog() {
 
   process.on('uncaughtException', (error) => {
     serverLog('error', `uncaught exception: ${error.stack || error.message || error}`);
+    getGlobalErrorLog()?.log('uncaught-exception', undefined, error);
     // eslint-disable-next-line no-restricted-properties
     process.exit(1);
   });
@@ -52,6 +54,7 @@ export function setupExitWatchdog() {
     // and browser_run_code detached promises are expected runtime events —
     // crashing the server kills all sessions for a single-promise failure.
     serverLog('rejection', `unhandled rejection (non-fatal): ${reason instanceof Error ? (reason.stack || reason.message) : String(reason)}`);
+    getGlobalErrorLog()?.log('unhandled-rejection', undefined, reason);
   });
 
   process.on('exit', (code) => {

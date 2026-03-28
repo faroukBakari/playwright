@@ -96,6 +96,17 @@ export class ErrorLog {
   }
 }
 
+// Module-level singleton for cross-cutting error logging (e.g. watchdog).
+// Set by the first createErrorLog() call — all writers share one instance
+// pointing at the same errors dir, avoiding duplicate JSONL streams.
+let _globalErrorLog: ErrorLog | undefined;
+
+export function getGlobalErrorLog(): ErrorLog | undefined {
+  return _globalErrorLog;
+}
+
 export function createErrorLog(serviceDir: string, retentionDays?: number): ErrorLog {
-  return new ErrorLog(path.join(serviceDir, '.local', 'errors'), retentionDays);
+  if (!_globalErrorLog)
+    _globalErrorLog = new ErrorLog(path.join(serviceDir, '.local', 'errors'), retentionDays);
+  return _globalErrorLog;
 }

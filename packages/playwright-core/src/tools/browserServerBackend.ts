@@ -125,13 +125,16 @@ export class BrowserServerBackend implements ServerBackend {
     this._errorLog?.close();
     // Dispose all contexts (default + session-created)
     const disposals = [...this._contexts.values()].map(
-        ctx => ctx.dispose().catch(e => debug('pw:tools:error')(e))
+        ctx => ctx.dispose().catch(e => {
+          debug('pw:tools:error')(e);
+          serverLog('warn', 'context disposal error', e);
+        })
     );
     await Promise.all(disposals);
     this._contexts.clear();
     // Close extra browsers created by the factory
     for (const browser of this._extraBrowsers.values())
-      await browser.close().catch(() => {});
+      await browser.close().catch(e => serverLog('warn', 'extra browser close error', e));
     this._extraBrowsers.clear();
   }
 
@@ -143,13 +146,16 @@ export class BrowserServerBackend implements ServerBackend {
     const ctx = this._contexts.get(sessionId);
     if (!ctx)
       return;
-    await ctx.dispose().catch(e => debug('pw:tools:error')(e));
+    await ctx.dispose().catch(e => {
+      debug('pw:tools:error')(e);
+      serverLog('warn', `context disposal error for sessionId="${sessionId}"`, e);
+    });
     this._contexts.delete(sessionId);
     // Close the extra browser backing this context
     const extraBrowser = this._extraBrowsers.get(sessionId);
     if (extraBrowser) {
       this._extraBrowsers.delete(sessionId);
-      await extraBrowser.close().catch(() => {});
+      await extraBrowser.close().catch(e => serverLog('warn', `extra browser close error for sessionId="${sessionId}"`, e));
     }
     serverLog('lifecycle', `removed context for sessionId="${sessionId}" (remaining: ${this._contexts.size})`);
   }
