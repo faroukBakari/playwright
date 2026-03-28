@@ -1497,6 +1497,7 @@ scheme.PageSnapshotForAIParams = tObject({
   track: tOptional(tString),
   timeout: tFloat,
   interactableOnly: tOptional(tBoolean),
+  includeUrls: tOptional(tBoolean),
   rootSelector: tOptional(tString),
 });
 scheme.PageSnapshotForAIResult = tObject({

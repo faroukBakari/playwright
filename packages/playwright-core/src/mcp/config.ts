@@ -385,6 +385,9 @@ export function configFromEnv(): Config & { configFile?: string } {
   const snapshotWaitForTimeout = numberParser(process.env.PLAYWRIGHT_MCP_SNAPSHOT_WAIT_FOR_TIMEOUT);
   if (snapshotWaitForTimeout !== undefined)
     config.snapshot = { ...config.snapshot, waitForTimeout: snapshotWaitForTimeout };
+  const snapshotIncludeUrls = envToBoolean(process.env.PLAYWRIGHT_MCP_SNAPSHOT_INCLUDE_URLS);
+  if (snapshotIncludeUrls !== undefined)
+    config.snapshot = { ...config.snapshot, includeUrls: snapshotIncludeUrls };
 
   // Evaluate env var overrides
   const evalMaxResultLength = numberParser(process.env.PLAYWRIGHT_MCP_EVAL_MAX_RESULT_LENGTH);

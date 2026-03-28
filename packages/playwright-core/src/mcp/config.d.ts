@@ -303,6 +303,14 @@ export type Config = {
      * Defaults to 3000.
      */
     waitForTimeout?: number;
+
+    /**
+     * When false, link URLs are stripped from accessibility snapshots.
+     * Links still show their text content and ref — only the [url=...] prop
+     * is omitted. Saves ~14% of snapshot token budget on link-heavy pages.
+     * Defaults to true.
+     */
+    includeUrls?: boolean;
   };
 
   /**

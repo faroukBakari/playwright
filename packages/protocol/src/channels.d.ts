@@ -2612,11 +2612,13 @@ export type PageSnapshotForAIParams = {
   track?: string,
   timeout: number,
   interactableOnly?: boolean,
+  includeUrls?: boolean,
   rootSelector?: string,
 };
 export type PageSnapshotForAIOptions = {
   track?: string,
   interactableOnly?: boolean,
+  includeUrls?: boolean,
   rootSelector?: string,
 };
 export type PageSnapshotForAIResult = {

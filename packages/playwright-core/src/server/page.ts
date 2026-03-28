@@ -870,7 +870,7 @@ export class Page extends SdkObject<PageEventMap> {
     await Promise.all(this.frames().map(frame => frame.hideHighlight().catch(() => {})));
   }
 
-  async snapshotForAI(progress: Progress, options: { track?: string, doNotRenderActive?: boolean, interactableOnly?: boolean, rootSelector?: string } = {}): Promise<{ full: string, incremental?: string }> {
+  async snapshotForAI(progress: Progress, options: { track?: string, doNotRenderActive?: boolean, interactableOnly?: boolean, includeUrls?: boolean, rootSelector?: string } = {}): Promise<{ full: string, incremental?: string }> {
     const snapshot = await snapshotFrameForAI(progress, this.mainFrame(), options);
     const full = snapshot.full.join('\n');
     const incremental = snapshot.incremental?.join('\n');
@@ -1021,7 +1021,7 @@ export class InitScript extends DisposableObject {
   }
 }
 
-async function snapshotFrameForAI(progress: Progress, frame: frames.Frame, options: { track?: string, doNotRenderActive?: boolean, interactableOnly?: boolean, rootSelector?: string } = {}): Promise<{ full: string[], incremental?: string[], filterStats?: { nodesTotal: number, nodesRendered: number, nodesSkipped: number }, selectorResolved?: boolean }> {
+async function snapshotFrameForAI(progress: Progress, frame: frames.Frame, options: { track?: string, doNotRenderActive?: boolean, interactableOnly?: boolean, includeUrls?: boolean, rootSelector?: string } = {}): Promise<{ full: string[], incremental?: string[], filterStats?: { nodesTotal: number, nodesRendered: number, nodesSkipped: number }, selectorResolved?: boolean }> {
   // Only await the topmost navigations, inner frames will be empty when racing.
   const snapshot = await frame.retryWithProgressAndTimeouts(progress, [1000, 2000, 4000, 8000], async continuePolling => {
     try {
@@ -1032,7 +1032,7 @@ async function snapshotFrameForAI(progress: Progress, frame: frames.Frame, optio
         if (!node)
           return true;
         return injected.incrementalAriaSnapshot(node, { mode: 'ai', ...options });
-      }, { refPrefix: frame.seq ? 'f' + frame.seq : '', track: options.track, doNotRenderActive: options.doNotRenderActive, interactableOnly: options.interactableOnly, rootSelector: options.rootSelector }));
+      }, { refPrefix: frame.seq ? 'f' + frame.seq : '', track: options.track, doNotRenderActive: options.doNotRenderActive, interactableOnly: options.interactableOnly, includeUrls: options.includeUrls, rootSelector: options.rootSelector }));
       if (snapshotOrRetry === true)
         return continuePolling;
       return snapshotOrRetry;

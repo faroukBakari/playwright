@@ -41,6 +41,7 @@ export type AriaTreeOptions = {
   refPrefix?: string;
   doNotRenderActive?: boolean;
   interactableOnly?: boolean;
+  includeUrls?: boolean;
   rootSelector?: string;
 };
 
@@ -655,7 +656,7 @@ export function renderAriaTree(ariaSnapshot: AriaSnapshot, publicOptions: AriaTr
         key += ' [cursor=pointer]';
     }
     // Inline URL on the role line instead of rendering as a child prop line.
-    if (ariaNode.props['url'])
+    if (ariaNode.props['url'] && publicOptions.includeUrls !== false)
       key += ` [url=${ariaNode.props['url']}]`;
     return key;
   };
