@@ -9,6 +9,7 @@
  */
 
 import { z } from '../mcpBundle';
+import { serverLog } from '../mcp/log';
 import { defineTool } from './tool';
 const attachTab = defineTool({
   capability: 'core-tabs',
@@ -32,8 +33,6 @@ const attachTab = defineTool({
     // and the Page never materializes.
     await context.ensureBrowserContext();
 
-    const tabCountBefore = context.tabs().length;
-
     const fetchResponse = await fetch(`${context.relayHttpUrl}/tabs/attach`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -50,14 +49,28 @@ const attachTab = defineTool({
     }
 
     const result = await fetchResponse.json();
+    const expectedTargetId: string | undefined = result.targetInfo?.targetId;
+    serverLog('lifecycle', `attachTab: relay success tabId=${params.tabId} targetId=${expectedTargetId ?? 'unknown'} sessionId=${context.id}`);
 
     // Wait for the Page to materialize via CDP event routing.
-    const deadline = Date.now() + 10000;
-    while (context.tabs().length <= tabCountBefore && Date.now() < deadline)
-      await new Promise(r => setTimeout(r, 100));
+    // Track by page object identity — count-based detection fails when a stale
+    // target is cleaned up (count drops then returns to original on replacement).
+    const pagesBefore = new Set(context.tabs().map(t => t.page));
+    serverLog('lifecycle', `attachTab: waiting for new page, existing pages=${pagesBefore.size}`);
 
-    if (context.tabs().length <= tabCountBefore)
-      throw new Error(`Attached to tab ${params.tabId} but Playwright page did not materialize — CDP event routing may be broken for this session. Try restarting the server.`);
+    const deadline = Date.now() + 10000;
+    let newTab = context.tabs().find(t => !pagesBefore.has(t.page));
+    while (!newTab && Date.now() < deadline) {
+      await new Promise(r => setTimeout(r, 100));
+      newTab = context.tabs().find(t => !pagesBefore.has(t.page));
+    }
+
+    if (!newTab) {
+      serverLog('warn', `attachTab: page did not materialize — targetId=${expectedTargetId}, pagesBefore=${pagesBefore.size}, pagesNow=${context.tabs().length}`);
+      throw new Error(`Attached to tab ${params.tabId} but Playwright page did not materialize (targetId=${expectedTargetId}) — CDP event routing may be broken for this session. Try restarting the server.`);
+    }
+
+    serverLog('lifecycle', `attachTab: page materialized tabId=${params.tabId} targetId=${expectedTargetId} pagesNow=${context.tabs().length}`);
 
     const lines = [`Attached to tab ${params.tabId}.`];
     if (result.targetInfo?.url)
@@ -67,6 +80,7 @@ const attachTab = defineTool({
     if (result.bumpedSessionId)
       lines.push(`Previous session ${result.bumpedSessionId} was detached.`);
 
+    response.setIncludeSnapshot();
     response.addTextResult(lines.join('\n'));
   },
 });

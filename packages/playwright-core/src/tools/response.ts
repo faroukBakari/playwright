@@ -243,12 +243,11 @@ export class Response {
     // Render tab titles upon changes or when more than one tab.
     if (this._snapshotSelector)
       requestDebug('snapshotSelector=%s for tool=%s', this._snapshotSelector, this.toolName);
-    // Always capture when a tab exists — keeps baseline advancing for future diffs.
-    // The mode only controls what appears in the response, not whether we capture.
     const hasTab = !!this._context.currentTab();
+    const wantsSnapshot = this._includeSnapshot !== 'none';
 
     // Execute snapshotWaitFor condition before capture
-    if (this._snapshotWaitFor && hasTab) {
+    if (this._snapshotWaitFor && hasTab && wantsSnapshot) {
       const tab = this._context.currentTabOrDie();
       const waitForTimeout = Math.min(
         this._context.config.snapshot?.waitForTimeout ?? 3000,
@@ -316,14 +315,14 @@ export class Response {
       }
     }
 
-    const tabSnapshot = hasTab ? await this._context.currentTabOrDie().captureSnapshot(this._clientWorkspace, { rootSelector: this._snapshotSelector, clientId: this._clientId }) : undefined;
+    const tabSnapshot = hasTab && wantsSnapshot ? await this._context.currentTabOrDie().captureSnapshot(this._clientWorkspace, { rootSelector: this._snapshotSelector, clientId: this._clientId }) : undefined;
     if (tabSnapshot?.selectorResolved === false && this._snapshotSelector)
       resultContent.push(`snapshotSelector '${this._snapshotSelector}' matched no elements — returning full page snapshot`);
     if (tabSnapshot?.selectorResolved === true && this._snapshotSelector)
       resultContent.push(`selectorResolved: true — snapshotSelector '${this._snapshotSelector}' matched`);
     requestDebug('tool=%s snapshot=%s hasTab=%s', this.toolName, this._includeSnapshot, hasTab);
-    const tabHeaders = await Promise.all(this._context.tabs().map(tab => tab.headerSnapshot()));
-    if (this._includeSnapshot !== 'none' || tabHeaders.some(header => header.changed)) {
+    const tabHeaders = wantsSnapshot ? await Promise.all(this._context.tabs().map(tab => tab.headerSnapshot())) : [];
+    if (wantsSnapshot || tabHeaders.some(header => header.changed)) {
       if (tabHeaders.length !== 1)
         addSection('Open tabs', renderTabsMarkdown(tabHeaders));
       addSection('Page', renderTabMarkdown(tabHeaders.find(h => h.current) ?? tabHeaders[0]));

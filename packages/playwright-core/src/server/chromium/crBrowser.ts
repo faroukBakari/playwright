@@ -18,6 +18,7 @@
 import path from 'path';
 
 import { assert } from '../../utils/isomorphic/assert';
+import { serverLog } from '../../mcp/log';
 import { createGuid } from '../utils/crypto';
 import { Artifact } from '../artifact';
 import { Browser } from '../browser';
@@ -185,8 +186,22 @@ export class CRBrowser extends Browser {
       return;
     }
 
-    assert(!this._crPages.has(targetInfo.targetId), 'Duplicate target ' + targetInfo.targetId);
-    assert(!this._serviceWorkers.has(targetInfo.targetId), 'Duplicate target ' + targetInfo.targetId);
+    // Stale target cleanup: after a relay disconnect, _onDetachedFromTarget never
+    // fires, leaving orphan entries in _crPages/_serviceWorkers. When the debugger
+    // reattaches to the same tab, the target ID is reused. Replace the stale entry
+    // instead of asserting — the old Page/session is already dead.
+    const stalePage = this._crPages.get(targetInfo.targetId);
+    if (stalePage) {
+      serverLog('session', `stale target replaced: targetId=${targetInfo.targetId} — old CRPage cleaned up (relay reconnect)`);
+      this._crPages.delete(targetInfo.targetId);
+      stalePage.didClose();
+    }
+    const staleWorker = this._serviceWorkers.get(targetInfo.targetId);
+    if (staleWorker) {
+      serverLog('session', `stale service worker replaced: targetId=${targetInfo.targetId}`);
+      this._serviceWorkers.delete(targetInfo.targetId);
+      staleWorker.didClose();
+    }
 
     if (targetInfo.type === 'page' || treatOtherAsPage) {
       const opener = targetInfo.openerId ? this._crPages.get(targetInfo.openerId) || null : null;

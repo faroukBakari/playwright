@@ -9,6 +9,7 @@
  */
 
 import { z } from '../mcpBundle';
+import { serverLog } from '../mcp/log';
 import { defineTool } from './tool';
 const createTab = defineTool({
   capability: 'core-tabs',
@@ -32,8 +33,6 @@ const createTab = defineTool({
     // and the Page never materializes.
     await context.ensureBrowserContext();
 
-    const tabCountBefore = context.tabs().length;
-
     const fetchResponse = await fetch(`${context.relayHttpUrl}/tabs/create`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -50,15 +49,30 @@ const createTab = defineTool({
     }
 
     const result = await fetchResponse.json();
+    const expectedTargetId: string | undefined = result.targetInfo?.targetId;
+    serverLog('lifecycle', `createTab: relay success tabId=${result.tabId} targetId=${expectedTargetId ?? 'unknown'} sessionId=${context.id}`);
 
     // Wait for the Page to materialize via CDP event routing.
+    // Track by page object identity — count-based detection fails when a stale
+    // target is cleaned up (count drops then returns to original on replacement).
+    const pagesBefore = new Set(context.tabs().map(t => t.page));
+    serverLog('lifecycle', `createTab: waiting for new page, existing pages=${pagesBefore.size}`);
+
     const deadline = Date.now() + 10000;
-    while (context.tabs().length <= tabCountBefore && Date.now() < deadline)
+    let newTab = context.tabs().find(t => !pagesBefore.has(t.page));
+    while (!newTab && Date.now() < deadline) {
       await new Promise(r => setTimeout(r, 100));
+      newTab = context.tabs().find(t => !pagesBefore.has(t.page));
+    }
 
-    if (context.tabs().length <= tabCountBefore)
-      throw new Error(`Tab ${result.tabId} created but Playwright page did not materialize — CDP event routing may be broken for this session. Try restarting the server.`);
+    if (!newTab) {
+      serverLog('warn', `createTab: page did not materialize — targetId=${expectedTargetId}, pagesBefore=${pagesBefore.size}, pagesNow=${context.tabs().length}`);
+      throw new Error(`Tab ${result.tabId} created but Playwright page did not materialize (targetId=${expectedTargetId}) — CDP event routing may be broken for this session. Try restarting the server.`);
+    }
 
+    serverLog('lifecycle', `createTab: page materialized tabId=${result.tabId} targetId=${expectedTargetId} pagesNow=${context.tabs().length}`);
+
+    response.setIncludeSnapshot();
     response.addTextResult(`Created tab ${result.tabId}.\nURL: ${result.url}`);
   },
 });
