@@ -22,6 +22,7 @@ import { serverLog } from '../log';
 
 import { startMcpHttpServer } from './http';
 import { toMcpTool } from './tool';
+import { enableStdinShutdown } from '../watchdog';
 
 import type { CallToolResult, CallToolRequest, Root } from '@modelcontextprotocol/sdk/types.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
@@ -213,6 +214,7 @@ function addServerListener(server: Server, event: 'close' | 'initialized', liste
 
 export async function start(serverBackendFactory: ServerBackendFactory, options: { host?: string; port?: number, allowedHosts?: string[], socketPath?: string } = {}) {
   if (options.port === undefined) {
+    enableStdinShutdown();  // arm stdin-EOF → graceful exit (prevents zombie processes)
     await connect(serverBackendFactory, new mcpBundle.StdioServerTransport(), false);
     return;
   }
