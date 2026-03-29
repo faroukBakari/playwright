@@ -67,7 +67,7 @@ const onChanges = [];
 const copyFiles = [];
 
 const watchMode = process.argv.slice(2).includes('--watch');
-const withSourceMaps = watchMode;
+const withSourceMaps = watchMode || !!process.env.PLAYWRIGHT_SOURCE_MAPS;
 const disableInstall = process.argv.slice(2).includes('--disable-install');
 const ROOT = path.join(__dirname, '..', '..');
 

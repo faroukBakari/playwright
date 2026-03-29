@@ -38,6 +38,7 @@
     "flint": "concurrently \"npm run eslint\" \"npm run tsc\" \"npm run doc\" \"npm run check-deps\" \"node utils/generate_channels.js\" \"node utils/generate_types/\" \"npm run lint-tests\" \"npm run test-types\" \"npm run lint-packages\" \"node utils/doclint/linting-code-snippets/cli.js --js-only\"",
     "clean": "node utils/build/clean.js",
     "build": "node utils/build/build.js",
+    "build:debug": "PLAYWRIGHT_SOURCE_MAPS=1 node utils/build/build.js",
     "watch": "node utils/build/build.js --watch --lint",
     "test-types": "node utils/generate_types/ && tsc -p utils/generate_types/test/tsconfig.json && tsc -p ./tests/",
     "roll": "node utils/roll_browser.js",
