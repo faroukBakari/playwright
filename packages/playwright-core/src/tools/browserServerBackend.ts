@@ -242,11 +242,6 @@ export class BrowserServerBackend implements ServerBackend {
     if (snapshotMode !== undefined || snapshotSelector !== undefined)
       requestDebug('tool=%s includeSnapshot=%s snapshotSelector=%s', name, snapshotMode, snapshotSelector);
     const context = await this._resolveContext(sessionId);
-    const clientIdParam: string | undefined = parsedArguments?.clientId;
-    if (clientIdParam && clientIdParam !== context.id) {
-      context.setClientId(clientIdParam);
-      context.perfLog.setClientId(clientIdParam);
-    }
     const callId = crypto.randomUUID();
     context.perfLog.setTool(name);
     context.perfLog.setCallId(callId);

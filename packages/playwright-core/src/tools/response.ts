@@ -234,7 +234,7 @@ export class Response {
     if (this._errors.length)
       addSection('Error', this._errors);
 
-    const resultContent = addSection('Result', [`- clientId: ${this._clientId}`, ...this._results]);
+    const resultContent = addSection('Result', this._results);
 
     // Code
     if (this._context.config.codegen !== 'none' && this._code.length)
