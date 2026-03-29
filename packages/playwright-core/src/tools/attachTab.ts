@@ -11,8 +11,10 @@
 import { z } from '../mcpBundle';
 import { serverLog } from '../mcp/log';
 import { defineTool } from './tool';
+import { waitForNewPage } from './tabUtils';
 const attachTab = defineTool({
   capability: 'core-tabs',
+  noTabRequired: true,
 
   schema: {
     name: 'browser_attach_tab',
@@ -53,24 +55,8 @@ const attachTab = defineTool({
     serverLog('lifecycle', `attachTab: relay success tabId=${params.tabId} targetId=${expectedTargetId ?? 'unknown'} sessionId=${context.id}`);
 
     // Wait for the Page to materialize via CDP event routing.
-    // Track by page object identity — count-based detection fails when a stale
-    // target is cleaned up (count drops then returns to original on replacement).
     const pagesBefore = new Set(context.tabs().map(t => t.page));
-    serverLog('lifecycle', `attachTab: waiting for new page, existing pages=${pagesBefore.size}`);
-
-    const deadline = Date.now() + 10000;
-    let newTab = context.tabs().find(t => !pagesBefore.has(t.page));
-    while (!newTab && Date.now() < deadline) {
-      await new Promise(r => setTimeout(r, 100));
-      newTab = context.tabs().find(t => !pagesBefore.has(t.page));
-    }
-
-    if (!newTab) {
-      serverLog('warn', `attachTab: page did not materialize — targetId=${expectedTargetId}, pagesBefore=${pagesBefore.size}, pagesNow=${context.tabs().length}`);
-      throw new Error(`Attached to tab ${params.tabId} but Playwright page did not materialize (targetId=${expectedTargetId}) — CDP event routing may be broken for this session. Try restarting the server.`);
-    }
-
-    serverLog('lifecycle', `attachTab: page materialized tabId=${params.tabId} targetId=${expectedTargetId} pagesNow=${context.tabs().length}`);
+    await waitForNewPage(context, pagesBefore, 10000, `attachTab(tabId=${params.tabId})`);
 
     const lines = [`Attached to tab ${params.tabId}.`];
     if (result.targetInfo?.url)
