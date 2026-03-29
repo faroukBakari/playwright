@@ -252,22 +252,20 @@ export class BrowserServerBackend implements ServerBackend {
     const pageUrl = hasPage ? context.currentTab()!.page.url() : undefined;
     serverLog('info', `[${name}] callId=${callId} session=${sessionId ?? 'default'} tabs=${context.tabs().length} currentTab=${hasPage ? pageUrl : 'none'} timeout=${timeoutMs}ms`);
 
-    // Fast-fail when no tab exists and the tool requires one.
-    // Avoids the 5s+ timeout that would otherwise occur when tools try to interact
-    // with a page that doesn't exist (common after session resume or server restart).
-    if (!hasPage && !BrowserServerBackend.NO_TAB_EXEMPT.has(name)) {
-      const msg = `No active tab — use browser_navigate or browser_create_tab to open a page first.`;
-      serverLog('warn', `[${name}] fast-fail: ${msg}`);
-      context.setRunningTool(undefined);
-      return {
-        content: [{ type: 'text' as const, text: `### Error\n\n${msg}` }],
-        isError: true,
-      };
-    }
-
     let responseObject: mcpServer.CallToolResult;
     const toolStart = performance.now();
     try {
+      // Fast-fail when no tab exists and the tool requires one.
+      // Inside the try so that finally{} handles setRunningTool cleanup.
+      if (!hasPage && !BrowserServerBackend.NO_TAB_EXEMPT.has(name)) {
+        const msg = `No active tab — use browser_navigate or browser_create_tab to open a page first.`;
+        serverLog('warn', `[${name}] fast-fail: ${msg}`);
+        return {
+          content: [{ type: 'text' as const, text: `### Error\n\n${msg}` }],
+          isError: true,
+        };
+      }
+
       responseObject = await context.perfLog.timeAsync(
         { phase: 'tool', step: 'e2e', side: 'server', target_ms: timeoutMs },
         async () => {
