@@ -63,6 +63,7 @@ function formatTabsTable(tabs: TabInfo[], filter: string): string {
 
 const listTabs = defineTool({
   capability: 'core-tabs',
+  noTabRequired: true,
 
   schema: {
     name: 'browser_list_tabs',

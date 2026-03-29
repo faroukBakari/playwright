@@ -20,6 +20,7 @@ import { renderTabsMarkdown } from './response';
 
 const browserTabs = defineTool({
   capability: 'core-tabs',
+  noTabRequired: true,
 
   schema: {
     name: 'browser_tabs',

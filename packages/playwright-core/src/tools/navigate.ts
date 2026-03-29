@@ -21,6 +21,7 @@ import { snapshotOptionsSchema } from './snapshot';
 
 const navigate = defineTool({
   capability: 'core-navigation',
+  noTabRequired: true,
 
   schema: {
     name: 'browser_navigate',
@@ -53,6 +54,7 @@ const navigate = defineTool({
 
 const goBack = defineTabTool({
   capability: 'core-navigation',
+  noTabRequired: true,
   schema: {
     name: 'browser_navigate_back',
     title: 'Go back',
@@ -72,6 +74,7 @@ const goBack = defineTabTool({
 const goForward = defineTabTool({
   capability: 'core-navigation',
   skillOnly: true,
+  noTabRequired: true,
   schema: {
     name: 'browser_navigate_forward',
     title: 'Go forward',
@@ -91,6 +94,7 @@ const goForward = defineTabTool({
 const reload = defineTabTool({
   capability: 'core-navigation',
   skillOnly: true,
+  noTabRequired: true,
   schema: {
     name: 'browser_reload',
     title: 'Reload the page',
@@ -109,6 +113,7 @@ const reload = defineTabTool({
 
 const navigateAndWait = defineTool({
   capability: 'core-navigation',
+  noTabRequired: true,
 
   schema: {
     name: 'browser_navigate_and_wait',

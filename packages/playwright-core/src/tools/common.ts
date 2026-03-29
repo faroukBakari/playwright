@@ -20,6 +20,7 @@ import { renderTabsMarkdown } from './response';
 
 const close = defineTool({
   capability: 'core',
+  noTabRequired: true,
 
   schema: {
     name: 'browser_close',
@@ -39,6 +40,7 @@ const close = defineTool({
 
 const resize = defineTabTool({
   capability: 'core',
+  noTabRequired: true,
   schema: {
     name: 'browser_resize',
     title: 'Resize browser window',

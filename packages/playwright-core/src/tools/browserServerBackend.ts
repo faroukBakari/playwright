@@ -165,14 +165,9 @@ export class BrowserServerBackend implements ServerBackend {
     'browser_navigate_back', 'browser_navigate_forward', 'browser_reload',
   ]);
 
-  // Tools that can run without an active tab — navigation, tab lifecycle, and window management.
-  // All other tools fast-fail with a descriptive error instead of timing out.
-  static readonly NO_TAB_EXEMPT = new Set([
-    'browser_navigate', 'browser_navigate_and_wait',
-    'browser_navigate_back', 'browser_navigate_forward', 'browser_reload',
-    'browser_create_tab', 'browser_list_tabs', 'browser_attach_tab',
-    'browser_tabs', 'browser_close', 'browser_resize',
-  ]);
+  // Tab requirement is now derived from tool.noTabRequired (set in each tool definition).
+  // Tools with noTabRequired: true can run without an active tab — all others fast-fail
+  // with a descriptive error instead of timing out.
 
   private _resolveTimeout(name: string, _toolType: string, timeoutSec: number | undefined): number {
     if (timeoutSec !== undefined)
@@ -257,7 +252,7 @@ export class BrowserServerBackend implements ServerBackend {
     try {
       // Fast-fail when no tab exists and the tool requires one.
       // Inside the try so that finally{} handles setRunningTool cleanup.
-      if (!hasPage && !BrowserServerBackend.NO_TAB_EXEMPT.has(name)) {
+      if (!hasPage && !tool.noTabRequired) {
         const msg = `No active tab — use browser_navigate or browser_create_tab to open a page first.`;
         serverLog('warn', `[${name}] fast-fail: ${msg}`);
         return {
