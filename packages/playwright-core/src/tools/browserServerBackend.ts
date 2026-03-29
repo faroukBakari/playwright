@@ -165,6 +165,15 @@ export class BrowserServerBackend implements ServerBackend {
     'browser_navigate_back', 'browser_navigate_forward', 'browser_reload',
   ]);
 
+  // Tools that can run without an active tab — navigation, tab lifecycle, and window management.
+  // All other tools fast-fail with a descriptive error instead of timing out.
+  static readonly NO_TAB_EXEMPT = new Set([
+    'browser_navigate', 'browser_navigate_and_wait',
+    'browser_navigate_back', 'browser_navigate_forward', 'browser_reload',
+    'browser_create_tab', 'browser_list_tabs', 'browser_attach_tab',
+    'browser_tabs', 'browser_close', 'browser_resize',
+  ]);
+
   private _resolveTimeout(name: string, _toolType: string, timeoutSec: number | undefined): number {
     if (timeoutSec !== undefined)
       return timeoutSec * 1000;
@@ -247,6 +256,20 @@ export class BrowserServerBackend implements ServerBackend {
     const hasPage = !!context.currentTab();
     const pageUrl = hasPage ? context.currentTab()!.page.url() : undefined;
     serverLog('info', `[${name}] callId=${callId} session=${sessionId ?? 'default'} tabs=${context.tabs().length} currentTab=${hasPage ? pageUrl : 'none'} timeout=${timeoutMs}ms`);
+
+    // Fast-fail when no tab exists and the tool requires one.
+    // Avoids the 5s+ timeout that would otherwise occur when tools try to interact
+    // with a page that doesn't exist (common after session resume or server restart).
+    if (!hasPage && !BrowserServerBackend.NO_TAB_EXEMPT.has(name)) {
+      const msg = `No active tab — use browser_navigate or browser_create_tab to open a page first.`;
+      serverLog('warn', `[${name}] fast-fail: ${msg}`);
+      context.setRunningTool(undefined);
+      return {
+        content: [{ type: 'text' as const, text: `### Error\n\n${msg}` }],
+        isError: true,
+      };
+    }
+
     let responseObject: mcpServer.CallToolResult;
     const toolStart = performance.now();
     try {
