@@ -24,13 +24,30 @@ export function logUnhandledError(error: unknown) {
 
 export const testDebug = debug('pw:mcp:test');
 
+const LOG_LEVELS: Record<string, number> = { error: 0, warn: 1, info: 2, debug: 3 };
+
+function categoryToLevel(category: string): number {
+  if (category === 'critical' || category === 'error') return LOG_LEVELS['error']!;
+  if (category === 'warn') return LOG_LEVELS['warn']!;
+  return LOG_LEVELS['info']!;
+}
+
+function getLogLevel(): number {
+  const env = (process.env['LOG_LEVEL'] ?? 'info').toLowerCase();
+  return LOG_LEVELS[env] ?? LOG_LEVELS['info']!;
+}
+
 /**
  * Always-on server lifecycle logger. Writes timestamped lines to stderr
  * (which server.sh redirects to .local/server.log). Not gated behind
  * DEBUG env var — these are the production breadcrumbs for troubleshooting
  * server crashes, idle exits, and session lifecycle.
+ *
+ * Gated by LOG_LEVEL env var (default: info). Levels: error, warn, info, debug.
+ * Category mapping: critical/error → error, warn → warn, all others → info.
  */
 export function serverLog(category: string, message: string, ...args: unknown[]) {
+  if (categoryToLevel(category) > getLogLevel()) return;
   const now = new Date();
   const ts = now.toLocaleString('sv-SE', { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }).replace(' ', 'T')
     + '.' + String(now.getMilliseconds()).padStart(3, '0');

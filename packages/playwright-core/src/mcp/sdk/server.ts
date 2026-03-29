@@ -18,6 +18,7 @@ import { fileURLToPath } from 'url';
 
 import { debug } from '../../utilsBundle';
 import * as mcpBundle from '../../mcpBundle';
+import { serverLog } from '../log';
 
 import { startMcpHttpServer } from './http';
 import { toMcpTool } from './tool';
@@ -143,8 +144,7 @@ export function createServer(name: string, version: string, factory: ServerBacke
       serverDebugResponse('callResult', mergedResult);
       return mergedResult;
     } catch (error) {
-      // eslint-disable-next-line no-console
-      console.error(`[MCP] callTool error (${request.params.name}):`, error);
+      serverLog('error', `callTool error (${request.params.name}):`, error);
       return {
         content: [{ type: 'text', text: '### Error\n' + String(error) }],
         isError: true,
@@ -229,8 +229,7 @@ export async function start(serverBackendFactory: ServerBackendFactory, options:
     JSON.stringify(mcpConfig, undefined, 2),
     'For legacy SSE transport support, you can use the /sse endpoint instead.',
   ].join('\n');
-    // eslint-disable-next-line no-console
-  console.error(message);
+  serverLog('lifecycle', message);
 }
 
 export function firstRootPath(roots: Root[]): string {
