@@ -51,7 +51,6 @@ export class Response {
   private _isClose: boolean = false;
   private _snapshotSelector: string | undefined;
   private _snapshotMode: SnapshotMode | undefined;
-  private _clientId: string;
   private _snapshotWaitFor?: { text?: string; textGone?: string; selector?: string; within?: string };
 
   readonly toolName: string;
@@ -66,7 +65,6 @@ export class Response {
     this._clientWorkspace = relativeTo ?? context.options.cwd;
     this._snapshotSelector = snapshotSelector;
     this._snapshotMode = snapshotMode;
-    this._clientId = context.id;
   }
 
   private _computRelativeTo(fileName: string): string {
@@ -315,7 +313,7 @@ export class Response {
       }
     }
 
-    const tabSnapshot = hasTab && wantsSnapshot ? await this._context.currentTabOrDie().captureSnapshot(this._clientWorkspace, { rootSelector: this._snapshotSelector, clientId: this._clientId }) : undefined;
+    const tabSnapshot = hasTab && wantsSnapshot ? await this._context.currentTabOrDie().captureSnapshot(this._clientWorkspace, { rootSelector: this._snapshotSelector, clientId: this._context.id }) : undefined;
     if (tabSnapshot?.selectorResolved === false && this._snapshotSelector)
       resultContent.push(`snapshotSelector '${this._snapshotSelector}' matched no elements — returning full page snapshot`);
     if (tabSnapshot?.selectorResolved === true && this._snapshotSelector)
