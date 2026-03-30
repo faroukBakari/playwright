@@ -19,6 +19,10 @@ import { helper } from './helper';
 import { assert } from '../utils';
 import { MultiMap } from '../utils/isomorphic/multimap';
 
+// Plain .js — bypasses tsx/esbuild transforms so .toString() output is clean
+// for cross-context evaluation in the browser page.
+const { inPagePrepareForScreenshots } = require('./screenshotterInjected.js');
+
 import type * as dom from './dom';
 import type { Frame } from './frames';
 import type { Page } from './page';
@@ -47,122 +51,6 @@ export type ScreenshotOptions = {
   caret?: 'hide' | 'initial';
   style?: string;
 };
-
-function inPagePrepareForScreenshots(screenshotStyle: string, hideCaret: boolean, disableAnimations: boolean, syncAnimations: boolean) {
-  // In WebKit, sync the animations.
-  if (syncAnimations) {
-    const style = document.createElement('style');
-    style.textContent = 'body {}';
-    document.head.appendChild(style);
-    document.documentElement.getBoundingClientRect();
-    style.remove();
-  }
-
-  if (!screenshotStyle && !hideCaret && !disableAnimations)
-    return;
-
-  const collectRoots = (root: Document | ShadowRoot, roots: (Document|ShadowRoot)[] = []): (Document|ShadowRoot)[] => {
-    roots.push(root);
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
-    do {
-      const node = walker.currentNode;
-      const shadowRoot = node instanceof Element ? node.shadowRoot : null;
-      if (shadowRoot)
-        collectRoots(shadowRoot, roots);
-    } while (walker.nextNode());
-    return roots;
-  };
-
-  const roots = collectRoots(document);
-  const cleanupCallbacks: (() => void)[] = [];
-
-  if (screenshotStyle) {
-    for (const root of roots) {
-      const styleTag = document.createElement('style');
-      styleTag.textContent = screenshotStyle;
-      if (root === document)
-        document.documentElement.append(styleTag);
-      else
-        root.append(styleTag);
-
-      cleanupCallbacks.push(() => {
-        styleTag.remove();
-      });
-    }
-  }
-
-  if (hideCaret) {
-    const elements = new Map<HTMLElement, { value: string, priority: string }>();
-    for (const root of roots) {
-      root.querySelectorAll('input,textarea,[contenteditable]').forEach(element => {
-        elements.set(element as HTMLElement, {
-          value: (element as HTMLElement).style.getPropertyValue('caret-color'),
-          priority: (element as HTMLElement).style.getPropertyPriority('caret-color')
-        });
-        (element as HTMLElement).style.setProperty('caret-color', 'transparent', 'important');
-      });
-    }
-    cleanupCallbacks.push(() => {
-      for (const [element, value] of elements)
-        element.style.setProperty('caret-color', value.value, value.priority);
-    });
-  }
-
-  if (disableAnimations) {
-    const infiniteAnimationsToResume: Set<Animation> = new Set();
-    const handleAnimations = (root: Document|ShadowRoot): void => {
-      for (const animation of root.getAnimations()) {
-        if (!animation.effect || animation.playbackRate === 0 || infiniteAnimationsToResume.has(animation))
-          continue;
-        const endTime = animation.effect.getComputedTiming().endTime;
-        if (Number.isFinite(endTime)) {
-          try {
-            animation.finish();
-          } catch (e) {
-            // animation.finish() should not throw for
-            // finite animations, but we'd like to be on the
-            // safe side.
-          }
-        } else {
-          try {
-            animation.cancel();
-            infiniteAnimationsToResume.add(animation);
-          } catch (e) {
-            // animation.cancel() should not throw for
-            // infinite animations, but we'd like to be on the
-            // safe side.
-          }
-        }
-      }
-    };
-    for (const root of roots) {
-      const handleRootAnimations: (() => void) = handleAnimations.bind(null, root);
-      handleRootAnimations();
-      root.addEventListener('transitionrun', handleRootAnimations);
-      root.addEventListener('animationstart', handleRootAnimations);
-      cleanupCallbacks.push(() => {
-        root.removeEventListener('transitionrun', handleRootAnimations);
-        root.removeEventListener('animationstart', handleRootAnimations);
-      });
-    }
-    cleanupCallbacks.push(() => {
-      for (const animation of infiniteAnimationsToResume) {
-        try {
-          animation.play();
-        } catch (e) {
-          // animation.play() should never throw, but
-          // we'd like to be on the safe side.
-        }
-      }
-    });
-  }
-
-  window.__pwCleanupScreenshot = () => {
-    for (const cleanupCallback of cleanupCallbacks)
-      cleanupCallback();
-    delete window.__pwCleanupScreenshot;
-  };
-}
 
 export class Screenshotter {
   private _queue = new TaskQueue();
@@ -254,7 +142,13 @@ export class Screenshotter {
     if (disableAnimations)
       progress.log('  disabled all CSS animations');
     const syncAnimations = this._page.delegate.shouldToggleStyleSheetToSyncAnimations();
-    await progress.race(this._page.safeNonStallingEvaluateInAllFrames('(' + inPagePrepareForScreenshots.toString() + `)(${JSON.stringify(screenshotStyle)}, ${hideCaret}, ${disableAnimations}, ${syncAnimations})`, 'utility'));
+    // TEMP DEBUG: verify .js import produces clean toString
+    const fnSource = inPagePrepareForScreenshots.toString();
+    if (fnSource.includes('__name'))
+      console.error('[BUG] inPagePrepareForScreenshots.toString() still contains __name! First 200 chars:', fnSource.substring(0, 200));
+    else
+      console.error('[OK] inPagePrepareForScreenshots.toString() is clean (no __name). Length:', fnSource.length);
+    await progress.race(this._page.safeNonStallingEvaluateInAllFrames('(' + fnSource + `)(${JSON.stringify(screenshotStyle)}, ${hideCaret}, ${disableAnimations}, ${syncAnimations})`, 'utility'));
     try {
       if (!process.env.PW_TEST_SCREENSHOT_NO_FONTS_READY) {
         progress.log('waiting for fonts to load...');

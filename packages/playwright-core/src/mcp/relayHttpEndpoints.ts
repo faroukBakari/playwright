@@ -169,32 +169,5 @@ export function installRelayHTTPEndpoints(server: http.Server, relay: RelayHTTPD
       });
       return;
     }
-
-    // TEMPORARY — test harness for chrome.downloads verification. Remove after.
-    if (url.pathname === '/test/send' && req.method === 'POST' && relay.sendCustomCommand) {
-      let body = '';
-      req.on('data', (chunk: Buffer) => body += chunk.toString());
-      req.on('error', () => {
-        if (!res.headersSent) { res.statusCode = 400; res.end(); }
-      });
-      req.on('end', async () => {
-        try {
-          const { method, params } = JSON.parse(body);
-          if (!method) {
-            res.setHeader('Content-Type', 'application/json');
-            res.statusCode = 400;
-            res.end(JSON.stringify({ error: 'method is required' }));
-            return;
-          }
-          const result = await relay.sendCustomCommand!(method, params || {}, { timeout: SIDEBAND_TIMEOUT });
-          res.setHeader('Content-Type', 'application/json');
-          res.statusCode = 200;
-          res.end(JSON.stringify({ result }));
-        } catch (e: any) {
-          sendError(res, e);
-        }
-      });
-      return;
-    }
   });
 }

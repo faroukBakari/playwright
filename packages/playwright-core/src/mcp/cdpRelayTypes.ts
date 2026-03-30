@@ -41,7 +41,6 @@ export interface CDPRelayOptions {
   graceTTL?: number;               // default: 5_000
   extensionGraceTTL?: number;      // default: 2_000
   extensionCommandTimeout?: number; // default: 10_000 — lifecycle commands (attachToTab, recoverSessions)
-  chromeRelaunchDebounce?: number;  // default: 2_000 (Wave 3, wired later)
   graceBufferMaxBytes?: number;    // default: 2MB
   maxConcurrentClients?: number;   // default: 4
   sessionGraceTTL?: number;        // optional for test ergonomics; production passes config value

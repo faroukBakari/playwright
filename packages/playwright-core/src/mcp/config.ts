@@ -23,7 +23,7 @@ import { dotenv } from '../utilsBundle';
 import { configFromIniFile } from './configIni';
 
 import type * as playwright from '../..';
-import type { Config, ToolCapability, TimeoutMatrix } from './config.d';
+import type { Config, ToolCapability } from './config.d';
 
 async function fileExistsAsync(resolved: string) {
   try { return (await fs.promises.stat(resolved)).isFile(); } catch { return false; }
@@ -78,23 +78,6 @@ export type CLIOptions = {
   viewportSize?: ViewportSize;
 };
 
-export const DEFAULT_TIMEOUT_MATRIX: TimeoutMatrix = {
-  budget: { default: 5000, navigate: 15000, runCode: 30000 },
-  playwright: { action: 5000, navigation: 30000, expect: 5000 },
-  settle: {
-    postActionDelay: 30,
-    navigationLoad: 5000,
-    networkRace: 3000,
-    postSettlement: 10,
-  },
-  infrastructure: {
-    bridgeBuffer: 5000,
-    extensionConnect: 5000,
-    extensionCommand: 10000,
-    sessionGrace: 0, // placeholder — overridden by config.relay.sessionGraceTTL at runtime
-  },
-};
-
 export const defaultConfig: FullConfig = {
   browser: {
     browserName: 'chromium',
@@ -109,11 +92,10 @@ export const defaultConfig: FullConfig = {
   },
   server: {},
   timeouts: {
-    budget: { ...DEFAULT_TIMEOUT_MATRIX.budget },
-    playwright: { ...DEFAULT_TIMEOUT_MATRIX.playwright },
-    infrastructure: { bridgeBuffer: DEFAULT_TIMEOUT_MATRIX.infrastructure.bridgeBuffer },
+    budget: { default: 5000, navigate: 15000, runCode: 30000 },
+    playwright: { action: 5000, navigation: 30000, expect: 5000 },
+    infrastructure: { bridgeBuffer: 5000 },
   },
-  timeoutMatrix: DEFAULT_TIMEOUT_MATRIX,
   performance: {
     postActionDelay: 30,
     postSettlementDelay: 10,
@@ -145,14 +127,14 @@ export type FullConfig = Config & {
     contextOptions: NonNullable<BrowserUserConfig['contextOptions']>;
   },
   server?: Config['server'],
-  timeoutMatrix: TimeoutMatrix;
   skillMode?: boolean;
   configFile?: string;
 };
 
 export async function resolveConfig(config: Config): Promise<FullConfig> {
   const result = mergeConfig(defaultConfig, config);
-  return finalizeTimeouts(result);
+  await validateConfig(result);
+  return result;
 }
 
 export async function resolveCLIConfig(cliOptions: CLIOptions): Promise<FullConfig> {
@@ -167,7 +149,7 @@ export async function resolveCLIConfig(cliOptions: CLIOptions): Promise<FullConf
   result = mergeConfig(result, cliOverrides);
   result.configFile = configFile;
   await validateConfig(result);
-  return finalizeTimeouts(result);
+  return result;
 }
 
 export async function validateConfig(config: FullConfig): Promise<void> {
@@ -198,6 +180,27 @@ export async function validateConfig(config: FullConfig): Promise<void> {
     if (config.relay.backendDisposalTTL == null) missing.push('relay.backendDisposalTTL');
     if (missing.length > 0)
       throw new Error(`Missing required relay config: ${missing.join(', ')}. All relay fields are required in playwright-mcp.json.`);
+  }
+
+  // Timeout cascade validation — budget must accommodate inner timeouts
+  const b = config.timeouts?.budget;
+  const p = config.timeouts?.playwright;
+  if (b && p) {
+    const violations: string[] = [];
+    if (b.default != null && b.default <= 0)
+      violations.push(`budget.default must be positive, got ${b.default}ms.`);
+    if (b.default != null && b.navigate != null && b.navigate < b.default)
+      violations.push(`budget.navigate (${b.navigate}ms) < budget.default (${b.default}ms).`);
+    if (b.default != null && b.runCode != null && b.runCode < b.default)
+      violations.push(`budget.runCode (${b.runCode}ms) < budget.default (${b.default}ms).`);
+    if (p.action != null && b.default != null && p.action > b.default * 2)
+      violations.push(`playwright.action (${p.action}ms) > 2x budget.default (${b.default}ms).`);
+    if (p.navigation != null && b.navigate != null && p.navigation > b.navigate * 2)
+      violations.push(`playwright.navigation (${p.navigation}ms) > 2x budget.navigate (${b.navigate}ms).`);
+    if (config.timeouts?.infrastructure?.bridgeBuffer != null && config.timeouts.infrastructure.bridgeBuffer < 3000)
+      violations.push(`infrastructure.bridgeBuffer (${config.timeouts.infrastructure.bridgeBuffer}ms) < 3000ms minimum.`);
+    if (violations.length > 0)
+      throw new Error(`Timeout cascade violation:\n${violations.join('\n')}`);
   }
 }
 
@@ -519,7 +522,6 @@ export function mergeConfig(base: FullConfig, overrides: Config): FullConfig {
         ...pickDefined(overrides.timeouts?.infrastructure),
       },
     },
-    timeoutMatrix: base.timeoutMatrix,
     performance: {
       ...pickDefined(base.performance),
       ...pickDefined(overrides.performance),
@@ -607,86 +609,3 @@ function envToString(value: string | undefined): string | undefined {
   return value ? value.trim() : undefined;
 }
 
-/**
- * Resolve the unified timeout matrix from the merged config.
- * Reads budget/playwright/infrastructure from config.timeouts (matrix shape)
- * and settle values from config.performance.
- */
-export function resolveTimeoutMatrix(config: FullConfig): TimeoutMatrix {
-  const t = config.timeouts;
-  return {
-    budget: {
-      default: t?.budget?.default ?? DEFAULT_TIMEOUT_MATRIX.budget.default,
-      navigate: t?.budget?.navigate ?? DEFAULT_TIMEOUT_MATRIX.budget.navigate,
-      runCode: t?.budget?.runCode ?? DEFAULT_TIMEOUT_MATRIX.budget.runCode,
-    },
-    playwright: {
-      action: t?.playwright?.action ?? DEFAULT_TIMEOUT_MATRIX.playwright.action,
-      navigation: t?.playwright?.navigation ?? DEFAULT_TIMEOUT_MATRIX.playwright.navigation,
-      expect: t?.playwright?.expect ?? DEFAULT_TIMEOUT_MATRIX.playwright.expect,
-    },
-    settle: {
-      postActionDelay: config.performance?.postActionDelay ?? DEFAULT_TIMEOUT_MATRIX.settle.postActionDelay,
-      navigationLoad: config.performance?.navigationLoadTimeout ?? DEFAULT_TIMEOUT_MATRIX.settle.navigationLoad,
-      networkRace: config.performance?.networkRaceTimeout ?? DEFAULT_TIMEOUT_MATRIX.settle.networkRace,
-      postSettlement: config.performance?.postSettlementDelay ?? DEFAULT_TIMEOUT_MATRIX.settle.postSettlement,
-    },
-    infrastructure: {
-      bridgeBuffer: t?.infrastructure?.bridgeBuffer ?? DEFAULT_TIMEOUT_MATRIX.infrastructure.bridgeBuffer,
-      extensionConnect: DEFAULT_TIMEOUT_MATRIX.infrastructure.extensionConnect,
-      extensionCommand: DEFAULT_TIMEOUT_MATRIX.infrastructure.extensionCommand,
-      sessionGrace: config.relay?.sessionGraceTTL ?? 0,
-    },
-  };
-}
-
-/**
- * Validate timeout cascade constraints. Throws on violations that would cause
- * runtime failures. Deadline propagation and the safety net handle tight
- * budget-to-playwright ratios dynamically, so only structurally broken configs
- * are rejected here.
- */
-export function validateTimeoutCascade(matrix: TimeoutMatrix): void {
-  const violations: string[] = [];
-
-  // Budget must be positive and ordered sensibly
-  if (matrix.budget.default <= 0)
-    violations.push(`budget.default must be positive, got ${matrix.budget.default}ms.`);
-  if (matrix.budget.navigate < matrix.budget.default)
-    violations.push(`budget.navigate (${matrix.budget.navigate}ms) < budget.default (${matrix.budget.default}ms). Navigation should have at least as much budget as regular tools.`);
-  if (matrix.budget.runCode < matrix.budget.default)
-    violations.push(`budget.runCode (${matrix.budget.runCode}ms) < budget.default (${matrix.budget.default}ms). Code execution should have at least as much budget as regular tools.`);
-
-  // Playwright inner timeouts must not exceed their corresponding budget
-  // (the safety net truncates, but grossly oversized inner timeouts indicate config error)
-  if (matrix.playwright.action > matrix.budget.default * 2)
-    violations.push(`playwright.action (${matrix.playwright.action}ms) > 2x budget.default (${matrix.budget.default}ms). Inner timeout is unreasonably large relative to budget.`);
-  if (matrix.playwright.navigation > matrix.budget.navigate * 2)
-    violations.push(`playwright.navigation (${matrix.playwright.navigation}ms) > 2x budget.navigate (${matrix.budget.navigate}ms). Inner timeout is unreasonably large relative to budget.`);
-
-  // Bridge buffer must provide real headroom
-  if (matrix.infrastructure.bridgeBuffer < 3000)
-    violations.push(`infrastructure.bridgeBuffer (${matrix.infrastructure.bridgeBuffer}ms) < 3000ms minimum.`);
-
-  if (violations.length > 0)
-    throw new Error(`Timeout cascade violation:\n${violations.join('\n')}`);
-}
-
-/**
- * Finalize timeout resolution after all config merges.
- * Builds the TimeoutMatrix, validates cascade constraints, and populates
- * flat playwright timeouts on the config for ContextConfig/tab.ts compatibility.
- */
-function finalizeTimeouts(config: FullConfig): FullConfig {
-  const matrix = resolveTimeoutMatrix(config);
-  validateTimeoutCascade(matrix);
-  config.timeoutMatrix = matrix;
-  // Populate flat playwright timeouts for tab.ts getters
-  // (ContextConfig.timeouts reads action/navigation/expect)
-  (config as any).timeouts = {
-    action: matrix.playwright.action,
-    navigation: matrix.playwright.navigation,
-    expect: matrix.playwright.expect,
-  };
-  return config;
-}

@@ -59,16 +59,6 @@ export class SessionGraceManager {
     return graced;
   }
 
-  /** Check if a sessionId is in grace. */
-  has(sessionId: string): boolean {
-    return this._graced.has(sessionId);
-  }
-
-  /** Get graced session data without removing it. */
-  get(sessionId: string): GracedSession | null {
-    return this._graced.get(sessionId) ?? null;
-  }
-
   /** Cancel all graced sessions, calling onExpire for each. */
   cancelAll(onExpire?: (sessionId: string, graced: GracedSession) => void): void {
     for (const [sessionId, graced] of this._graced) {

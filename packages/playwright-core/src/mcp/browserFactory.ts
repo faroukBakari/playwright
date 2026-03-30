@@ -23,28 +23,18 @@ import * as playwright from '../inprocess';
 import { registryDirectory } from '../server/registry/index';
 import { testDebug } from './log';
 import { outputDir } from '../tools/context';
-import { createExtensionBrowser } from './extensionContextFactory';
-
-import type { CDPRelayServer } from './cdpRelay';
 import type { FullConfig } from './config';
 import type { LaunchOptions, BrowserContextOptions } from '../client/types';
 import type { ClientInfo } from './sdk/server';
 
-export async function createBrowser(config: FullConfig, clientInfo: ClientInfo, relay?: CDPRelayServer): Promise<playwright.Browser> {
+export async function createBrowser(config: FullConfig, clientInfo: ClientInfo): Promise<playwright.Browser> {
   if (config.browser.remoteEndpoint)
     return await createRemoteBrowser(config);
   if (config.browser.cdpEndpoint)
     return await createCDPBrowser(config);
   if (config.browser.isolated)
     return await createIsolatedBrowser(config, clientInfo);
-  if (config.extension)
-    return await createExtensionBrowser(config, clientInfo, relay!);
   return await createPersistentBrowser(config, clientInfo);
-}
-
-export interface BrowserContextFactory {
-  contexts(clientInfo: ClientInfo): Promise<playwright.BrowserContext[]>;
-  createContext(clientInfo: ClientInfo): Promise<playwright.BrowserContext>;
 }
 
 async function createIsolatedBrowser(config: FullConfig, clientInfo: ClientInfo): Promise<playwright.Browser> {

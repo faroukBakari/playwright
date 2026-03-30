@@ -35,7 +35,6 @@ import type { Disposable } from '../client/disposable';
 import type { BrowserContext } from '../client/browserContext';
 import type { ToolCapability } from './tool';
 import type { PerfLog } from './perfLog';
-import type { TimeoutMatrix } from '../mcp/config.d';
 
 const testDebug = debug('pw:mcp:test');
 
@@ -85,7 +84,6 @@ export type ContextConfig = {
       bridgeBuffer?: number;
     };
   };
-  timeoutMatrix?: TimeoutMatrix;
   logging?: {
     retentionDays?: number;
   };

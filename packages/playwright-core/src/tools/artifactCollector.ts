@@ -44,13 +44,7 @@ export type DownloadFinishLogEntry = {
   download: Download;
 };
 
-export type RequestLogEntry = {
-  type: 'request';
-  wallTime: number;
-  request: playwright.Request;
-};
-
-export type EventEntry = ConsoleLogEntry | DownloadStartLogEntry | DownloadFinishLogEntry | RequestLogEntry;
+export type EventEntry = ConsoleLogEntry | DownloadStartLogEntry | DownloadFinishLogEntry;
 
 export type ConsoleMessageLocation = {
   url: string;
@@ -176,7 +170,7 @@ export class ArtifactCollector {
     this.resetLogs();
   }
 
-  resetLogs() {
+  private resetLogs() {
     const wallTime = Date.now();
     this._consoleLog.stop();
     this._consoleLog = new LogFile(this._context, wallTime, 'console', 'Console');
@@ -184,21 +178,13 @@ export class ArtifactCollector {
 
   handleRequest(request: playwright.Request) {
     this._requests.push(request);
-    const wallTime = request.timing().startTime || Date.now();
-    this._addLogEntry({ type: 'request', wallTime, request });
   }
 
-  handleResponse(response: playwright.Response) {
-    const timing = response.request().timing();
-    const wallTime = timing.responseStart + timing.startTime;
-    this._addLogEntry({ type: 'request', wallTime, request: response.request() });
+  handleResponse(_response: playwright.Response) {
   }
 
   handleRequestFailed(request: playwright.Request) {
     this._requests.push(request);
-    const timing = request.timing();
-    const wallTime = timing.responseEnd + timing.startTime;
-    this._addLogEntry({ type: 'request', wallTime, request });
   }
 
   handleConsoleMessage(message: ConsoleMessage) {

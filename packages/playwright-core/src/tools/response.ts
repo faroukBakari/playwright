@@ -365,7 +365,7 @@ export class Response {
     const text: string[] = [];
     if (tabSnapshot?.consoleLink)
       text.push(`- New console entries: ${tabSnapshot.consoleLink}`);
-    if (tabSnapshot?.events.filter(event => event.type !== 'request').length) {
+    if (tabSnapshot?.events.length) {
       // Per-call overrides from tool args, falling back to config defaults
       const excludePatterns: string[] | undefined = this.toolArgs.consoleExcludePatterns ?? this._context.config.console?.excludePatterns;
       const maxEvents: number | undefined = this.toolArgs.consoleMaxEvents ?? this._context.config.console?.maxEvents;
