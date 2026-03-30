@@ -261,11 +261,11 @@ export class Response {
             ...(within ? { within } : {}),
           }, () => tab.page.waitForFunction(
             ([text, within]: [string, string | undefined]) => {
-              let root: Element | null = within ? document.querySelector(within) : null;
+              let root: HTMLElement | null = within ? document.querySelector<HTMLElement>(within) : null;
               if (within && !root) {
                 for (const iframe of document.querySelectorAll('iframe')) {
                   try {
-                    root = iframe.contentDocument?.querySelector(within) ?? null;
+                    root = iframe.contentDocument?.querySelector<HTMLElement>(within) ?? null;
                     if (root) break;
                   } catch { /* cross-origin — skip */ }
                 }
@@ -283,11 +283,11 @@ export class Response {
             ...(within ? { within } : {}),
           }, () => tab.page.waitForFunction(
             ([text, within]: [string, string | undefined]) => {
-              let root: Element | null = within ? document.querySelector(within) : null;
+              let root: HTMLElement | null = within ? document.querySelector<HTMLElement>(within) : null;
               if (within && !root) {
                 for (const iframe of document.querySelectorAll('iframe')) {
                   try {
-                    root = iframe.contentDocument?.querySelector(within) ?? null;
+                    root = iframe.contentDocument?.querySelector<HTMLElement>(within) ?? null;
                     if (root) break;
                   } catch { /* cross-origin — skip */ }
                 }

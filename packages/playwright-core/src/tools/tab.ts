@@ -28,6 +28,7 @@ import { uploadFile } from './files';
 import { disposeAll } from '../client/disposable';
 import { ArtifactCollector, messageToConsoleMessage, pageErrorToConsoleMessage, type ConsoleMessageLevel } from './artifactCollector';
 import { SnapshotOrchestrator } from './snapshotOrchestrator';
+import type { TabSnapshot } from './snapshotOrchestrator';
 import { RefResolver } from './refResolver';
 
 export { renderModalStates, shouldIncludeMessage, consoleLevelForMessageType } from './artifactCollector';
@@ -100,9 +101,9 @@ export class Tab extends EventEmitter<TabEventsInterface> {
     ];
     (page as any)[tabSymbol] = this;
     this._initializedPromise = this._initialize();
-    this._actionTimeoutCeiling = context.config.timeouts?.action;
-    this._navigationTimeoutCeiling = context.config.timeouts?.navigation;
-    this._expectTimeoutCeiling = context.config.timeouts?.expect;
+    this._actionTimeoutCeiling = context.config.timeouts?.playwright?.action;
+    this._navigationTimeoutCeiling = context.config.timeouts?.playwright?.navigation;
+    this._expectTimeoutCeiling = context.config.timeouts?.playwright?.expect;
   }
 
   async dispose() {

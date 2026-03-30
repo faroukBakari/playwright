@@ -134,7 +134,7 @@ export function decorateMCPCommand(command: Command, version: string) {
           let sharedBackend: BrowserServerBackend | undefined;
           let activeSessionCount = 0;
           let backendDisposalTimer: ReturnType<typeof setTimeout> | null = null;
-          const backendGraceTTL = config.relay?.sessionGraceTTL ?? 900_000;
+          const backendGraceTTL = config.relay!.backendDisposalTTL;
 
           const serverBackendFactory: mcpServer.ServerBackendFactory = {
             name: 'Playwright w/ extension',
@@ -160,10 +160,10 @@ export function decorateMCPCommand(command: Command, version: string) {
             },
             disposed: async backend => {
               activeSessionCount--;
-              // Do NOT remove the session context here — leave it alive in the
-              // shared backend so the same sessionId can reuse it when the next
-              // tool call reconnects. Context cleanup happens when the backend
-              // disposal timer fires (all sessions gone for grace TTL).
+              // Close this session's browser context and relay WS connection.
+              // Without this, the relay slot stays occupied by a zombie WS after
+              // the MCP session is gone, eventually exhausting maxConcurrentClients.
+              await (backend as SharedBackendProxy).removeSessionContext();
               serverLog('lifecycle', `extension mode: session disconnected (active: ${activeSessionCount})`);
 
               if (activeSessionCount === 0 && sharedBackend) {

@@ -17,7 +17,7 @@
 import fs from 'fs';
 import os from 'os';
 
-import { devices } from '../..';
+import { devices } from '../inprocess';
 import { dotenv } from '../utilsBundle';
 
 import { configFromIniFile } from './configIni';
@@ -91,7 +91,7 @@ export const DEFAULT_TIMEOUT_MATRIX: TimeoutMatrix = {
     bridgeBuffer: 5000,
     extensionConnect: 5000,
     extensionCommand: 10000,
-    sessionGrace: 15000,
+    sessionGrace: 0, // placeholder — overridden by config.relay.sessionGraceTTL at runtime
   },
 };
 
@@ -189,6 +189,15 @@ export async function validateConfig(config: FullConfig): Promise<void> {
       if (!await fileExistsAsync(page))
         throw new Error(`Init page file does not exist: ${page}`);
     }
+  }
+
+  if (config.relay) {
+    const missing: string[] = [];
+    if (config.relay.maxConcurrentClients == null) missing.push('relay.maxConcurrentClients');
+    if (config.relay.sessionGraceTTL == null) missing.push('relay.sessionGraceTTL');
+    if (config.relay.backendDisposalTTL == null) missing.push('relay.backendDisposalTTL');
+    if (missing.length > 0)
+      throw new Error(`Missing required relay config: ${missing.join(', ')}. All relay fields are required in playwright-mcp.json.`);
   }
 }
 
@@ -372,7 +381,7 @@ export function configFromEnv(): Config & { configFile?: string } {
     config.snapshot = { ...config.snapshot, interactableOnly: snapshotInteractableOnly };
   const snapshotSettleMode = process.env.PLAYWRIGHT_MCP_SNAPSHOT_SETTLE_MODE;
   if (snapshotSettleMode !== undefined)
-    config.snapshot = { ...config.snapshot, settleMode: enumParser('--snapshot-settle-mode', ['none', 'quick', 'thorough'], snapshotSettleMode) };
+    config.snapshot = { ...config.snapshot, settleMode: enumParser<'none' | 'quick' | 'thorough'>('--snapshot-settle-mode', ['none', 'quick', 'thorough'], snapshotSettleMode) };
   const snapshotSettleQuietMs = numberParser(process.env.PLAYWRIGHT_MCP_SNAPSHOT_SETTLE_QUIET_MS);
   if (snapshotSettleQuietMs !== undefined)
     config.snapshot = { ...config.snapshot, settleQuietMs: snapshotSettleQuietMs };
@@ -626,7 +635,7 @@ export function resolveTimeoutMatrix(config: FullConfig): TimeoutMatrix {
       bridgeBuffer: t?.infrastructure?.bridgeBuffer ?? DEFAULT_TIMEOUT_MATRIX.infrastructure.bridgeBuffer,
       extensionConnect: DEFAULT_TIMEOUT_MATRIX.infrastructure.extensionConnect,
       extensionCommand: DEFAULT_TIMEOUT_MATRIX.infrastructure.extensionCommand,
-      sessionGrace: config.relay?.sessionGraceTTL ?? DEFAULT_TIMEOUT_MATRIX.infrastructure.sessionGrace,
+      sessionGrace: config.relay?.sessionGraceTTL ?? 0,
     },
   };
 }

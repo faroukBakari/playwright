@@ -346,10 +346,12 @@ export type Config = {
   };
 
   relay?: {
-    /** Maximum number of concurrent CDP clients. Default: 4 */
-    maxConcurrentClients?: number;
-    /** Per-session grace TTL in ms. Preserves tab binding during brief disconnects. Default: 30000 */
-    sessionGraceTTL?: number;
+    /** Maximum number of concurrent CDP clients. */
+    maxConcurrentClients: number;
+    /** Per-session grace TTL in ms. Preserves tab binding during brief disconnects. */
+    sessionGraceTTL: number;
+    /** Backend disposal TTL in ms. Keeps shared backend alive after last session disconnects. */
+    backendDisposalTTL: number;
   };
 
   performance?: {

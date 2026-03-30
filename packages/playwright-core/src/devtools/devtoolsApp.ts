@@ -20,7 +20,7 @@ import os from 'os';
 import net from 'net';
 
 
-import { chromium } from '../..';
+import { chromium } from '../inprocess';
 import { HttpServer } from '../server/utils/httpServer';
 import { gracefullyProcessExitDoNotHang } from '../server/utils/processLauncher';
 import { findChromiumChannelBestEffort, registryDirectory } from '../server/registry/index';

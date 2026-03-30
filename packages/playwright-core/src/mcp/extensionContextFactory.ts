@@ -16,7 +16,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import * as playwright from '../..';
+import * as playwright from '../inprocess';
 import { debug } from '../utilsBundle';
 import { createHttpServer, startHttpServer } from '../server/utils/network';
 import { CDPRelayServer } from './cdpRelay';

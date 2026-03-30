@@ -265,19 +265,19 @@ bundles.push({
 
 bundles.push({
   modulePath: 'packages/playwright-core/bundles/utils',
-  outfile: 'packages/playwright-core/lib/utilsBundleImpl/index.js',
+  outfile: 'packages/playwright-core/bundles/utils/out/index.js',
   entryPoints: ['src/utilsBundleImpl.ts'],
 });
 
 bundles.push({
   modulePath: 'packages/playwright-core/bundles/zip',
-  outdir: 'packages/playwright-core/lib',
+  outdir: 'packages/playwright-core/bundles/zip/out',
   entryPoints: ['src/zipBundleImpl.ts'],
 });
 
 bundles.push({
   modulePath: 'packages/playwright-core/bundles/mcp',
-  outfile: 'packages/playwright-core/lib/mcpBundleImpl/index.js',
+  outfile: 'packages/playwright-core/bundles/mcp/out/index.js',
   entryPoints: ['src/mcpBundleImpl.ts'],
   external: ['express', '@anthropic-ai/sdk'],
   alias: {
@@ -450,7 +450,7 @@ for (const pkg of workspace.packages()) {
 }
 
 function copyXdgOpen() {
-  const outdir = filePath('packages/playwright-core/lib/utilsBundleImpl');
+  const outdir = filePath('packages/playwright-core/bundles/utils/out');
   if (!fs.existsSync(outdir))
     fs.mkdirSync(outdir, { recursive: true });
 

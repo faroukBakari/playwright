@@ -20,7 +20,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
-import * as playwright from '../..';
+import * as playwright from '../inprocess';
 import { launchBrowserServer, printApiJson, runDriver, runServer } from './driver';
 import { registry, writeDockerVersion } from '../server';
 import { gracefullyProcessExitDoNotHang, isLikelyNpxGlobal, ManualPromise } from '../utils';

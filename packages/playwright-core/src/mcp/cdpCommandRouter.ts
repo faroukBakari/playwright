@@ -211,6 +211,7 @@ export class CDPCommandRouter {
       bumpedSession.cdpSessionId = null;
       bumpedSession.targetInfo = null;
       bumpedSession.tabId = null;
+      serverLog('session', `bump state cleared: sessionId=${bumpedSessionId} — cdpSessionId/targetInfo/tabId nulled, still in _clients (slot occupied until WS close)`);
     }
   }
 }

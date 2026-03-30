@@ -54,7 +54,6 @@ const debugLogger = debug('pw:mcp:relay');
 
 const DEFAULT_EXTENSION_COMMAND_TIMEOUT = 10_000;
 const DEFAULT_MAX_CONCURRENT_CLIENTS = 4;
-const DEFAULT_SESSION_GRACE_TTL = 30_000;
 
 export class CDPRelayServer {
   private _wsHost: string;
@@ -93,7 +92,7 @@ export class CDPRelayServer {
     this._extensionCommandTimeout = options?.extensionCommandTimeout ?? DEFAULT_EXTENSION_COMMAND_TIMEOUT;
     this._maxConcurrentClients = options?.maxConcurrentClients ?? DEFAULT_MAX_CONCURRENT_CLIENTS;
     this._downloadsPath = options?.downloadsPath;
-    this._sessionGrace = new SessionGraceManager(options?.sessionGraceTTL ?? DEFAULT_SESSION_GRACE_TTL);
+    this._sessionGrace = new SessionGraceManager(options?.sessionGraceTTL ?? 0);
     this._stateMachine = new CDPRelayStateMachine({
       graceTTL: options?.graceTTL ?? DEFAULT_GRACE_TTL,
       extensionGraceTTL: options?.extensionGraceTTL ?? DEFAULT_EXTENSION_GRACE_TTL,
@@ -216,13 +215,14 @@ export class CDPRelayServer {
   }
 
   private _handlePlaywrightConnection(clientWs: WebSocket, sessionId: string): void {
+    serverLog('session', `connect: sessionId=${sessionId} clients=${this._clients.size}/${this._maxConcurrentClients} state=${this._stateMachine.state}`);
     // Per-session grace: same sessionId reconnecting within TTL.
     // Checked FIRST — per-session grace has the correct session-specific
     // data (cdpSessionId, targetInfo, tabId), whereas server grace only
     // knows about the _lastDisconnectedSession (wrong for multi-session).
     const gracedSession = this._sessionGrace.cancel(sessionId);
     if (gracedSession) {
-      debugLogger(`Session ${sessionId} reconnected during per-session grace`);
+      serverLog('session', `reconnect via grace: sessionId=${sessionId} tabId=${gracedSession.tabId ?? 'null'}`);
       // Also cancel server grace if active — a session is back
       if (this._stateMachine.state === 'grace') {
         this._stateMachine.cancelGrace();
@@ -248,7 +248,7 @@ export class CDPRelayServer {
     const dormant = this._dormantSessions.get(sessionId);
     if (dormant) {
       this._dormantSessions.delete(sessionId);
-      debugLogger(`Session ${sessionId} reconnected from dormant (tab ${dormant.tabId})`);
+      serverLog('session', `reconnect via dormant: sessionId=${sessionId} tabId=${dormant.tabId}`);
       if (this._stateMachine.state === 'grace') {
         this._stateMachine.cancelGrace();
         this._stateMachine.flushGraceBuffer((data) => {
@@ -282,7 +282,7 @@ export class CDPRelayServer {
         this._stateMachine.state = 'disconnected';
         return;
       }
-      debugLogger('Playwright reconnected during grace period');
+      serverLog('session', `reconnect via server grace: sessionId=${sessionId} attempt=${this._playwrightReconnectCount}/${this._maxPlaywrightReconnects}`);
       const session: ClientSession = {
         sessionId,
         ws: clientWs,
@@ -304,7 +304,7 @@ export class CDPRelayServer {
 
     // Concurrency cap
     if (this._clients.size >= this._maxConcurrentClients) {
-      debugLogger('Rejecting connection: concurrent client limit reached');
+      serverLog('warn', `rejected: sessionId=${sessionId} — concurrent client limit (${this._clients.size}/${this._maxConcurrentClients})`);
       clientWs.close(1008, 'Concurrent client limit reached');
       return;
     }
@@ -323,6 +323,7 @@ export class CDPRelayServer {
     };
     this._clients.set(sessionId, session);
     this._stateMachine.state = 'connected';
+    serverLog('session', `accepted: sessionId=${sessionId} clients=${this._clients.size}/${this._maxConcurrentClients}`);
     this._installPlaywrightHandlers(clientWs, sessionId);
   }
 
@@ -337,11 +338,15 @@ export class CDPRelayServer {
     });
     clientWs.on('close', () => {
       const session = this._clients.get(sessionId);
-      if (!session || session.ws !== clientWs)
+      if (!session || session.ws !== clientWs) {
+        serverLog('session', `WS close (stale): sessionId=${sessionId} found=${!!session} wsMatch=${session?.ws === clientWs} clients=${this._clients.size}/${this._maxConcurrentClients}`);
         return;
+      }
+      serverLog('session', `WS close: sessionId=${sessionId} cdpSessionId=${session.cdpSessionId ?? 'null'} tabId=${session.tabId ?? 'null'} clients=${this._clients.size}/${this._maxConcurrentClients}`);
 
       // Remove from active clients
       this._clients.delete(sessionId);
+      serverLog('session', `slot freed: sessionId=${sessionId} clients=${this._clients.size}/${this._maxConcurrentClients}`);
 
       // Try per-session grace (preserves tab binding)
       const enteredGrace = this._sessionGrace.enter(
@@ -367,6 +372,8 @@ export class CDPRelayServer {
         }
       );
 
+      serverLog('session', `grace: sessionId=${sessionId} entered=${enteredGrace} cdpSessionId=${session.cdpSessionId ?? 'null'} tabId=${session.tabId ?? 'null'}`);
+
       // If session had no tab binding (cdpSessionId null), do immediate cleanup as before
       if (!enteredGrace && session.cdpSessionId != null && this._extensionConnection) {
         this._extensionConnection.send('detachTab', { sessionId }).catch(e => serverLog('warn', `detachTab failed for session ${sessionId}`, e));
@@ -374,13 +381,13 @@ export class CDPRelayServer {
 
       // If in extension grace and all clients gone — immediate disconnected
       if (this._stateMachine.state === 'extensionGrace' && this._clients.size === 0) {
+        serverLog('lifecycle', `cascade: all clients gone during extensionGrace, sessionId=${sessionId} triggered transition to disconnected`);
         this._stateMachine.cancelExtensionGrace();
         this._sessionGrace.cancelAll((sid: string, _graced: GracedSession) => {
           if (this._extensionConnection)
             this._extensionConnection.send('detachTab', { sessionId: sid }).catch(e => serverLog('warn', `detachTab failed for session ${sid}`, e));
         });
         this._stateMachine.state = 'disconnected';
-        debugLogger('Last client closed during extension grace — disconnected');
         return;
       }
 
@@ -388,8 +395,10 @@ export class CDPRelayServer {
       if (this._clients.size === 0) {
         this._lastDisconnectedSession = session;
         if (this._extensionConnection) {
+          serverLog('lifecycle', `last client: sessionId=${sessionId} entering=grace`);
           this._stateMachine.enterGrace();
         } else {
+          serverLog('lifecycle', `last client: sessionId=${sessionId} entering=disconnected (no extension)`);
           this._sessionGrace.cancelAll();
           this._stateMachine.state = 'disconnected';
         }
@@ -595,16 +604,16 @@ export class CDPRelayServer {
 
   // --- Extension relay commands (for MCP tools) ---
 
-  async listTabs(): Promise<any> {
+  async listTabs(options?: { timeout?: number }): Promise<any> {
     if (!this._extensionConnection)
       throw new Error('Extension not connected');
-    return await this._extensionConnection.send('listTabs', {} as any, { timeout: this._extensionCommandTimeout });
+    return await this._extensionConnection.send('listTabs', {} as any, { timeout: options?.timeout ?? this._extensionCommandTimeout });
   }
 
-  async createTab(sessionId: string, url?: string): Promise<any> {
+  async createTab(sessionId: string, url?: string, options?: { timeout?: number }): Promise<any> {
     if (!this._extensionConnection)
       throw new Error('Extension not connected');
-    const result = await this._extensionConnection.send('createTab', { sessionId, url } as any, { timeout: this._extensionCommandTimeout });
+    const result = await this._extensionConnection.send('createTab', { sessionId, url } as any, { timeout: options?.timeout ?? this._extensionCommandTimeout });
     // Update the ClientSession if it already exists
     const session = this._clients.get(sessionId);
     if (session) {
@@ -618,10 +627,11 @@ export class CDPRelayServer {
     return result;
   }
 
-  async attachTab(sessionId: string, tabId: number): Promise<any> {
+  async attachTab(sessionId: string, tabId: number, options?: { timeout?: number }): Promise<any> {
     if (!this._extensionConnection)
       throw new Error('Extension not connected');
-    const result = await this._extensionConnection.send('attachToTab', { sessionId, tabId } as any, { timeout: this._extensionCommandTimeout });
+    serverLog('session', `attachTab: sessionId=${sessionId} tabId=${tabId} clients=${this._clients.size}/${this._maxConcurrentClients} sessionExists=${this._clients.has(sessionId)}`);
+    const result = await this._extensionConnection.send('attachToTab', { sessionId, tabId } as any, { timeout: options?.timeout ?? this._extensionCommandTimeout });
     // Notify bumped client
     if (result.bumpedSessionId)
       this._commandRouter.notifyBumpedClient(result.bumpedSessionId, sessionId, tabId);

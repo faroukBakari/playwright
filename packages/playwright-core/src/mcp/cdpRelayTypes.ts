@@ -44,7 +44,7 @@ export interface CDPRelayOptions {
   chromeRelaunchDebounce?: number;  // default: 2_000 (Wave 3, wired later)
   graceBufferMaxBytes?: number;    // default: 2MB
   maxConcurrentClients?: number;   // default: 4
-  sessionGraceTTL?: number;        // default: 30_000
+  sessionGraceTTL?: number;        // optional for test ergonomics; production passes config value
   downloadsPath?: string;          // Browser-side download directory (e.g., Windows path when Chrome runs on Windows)
 }
 

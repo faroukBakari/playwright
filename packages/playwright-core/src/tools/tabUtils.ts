@@ -4,7 +4,7 @@
 
 import type { Context } from './context';
 import type { Tab } from './tab';
-import type { Page } from '../page';
+import type { Page } from '../client/page';
 import { serverLog } from '../mcp/log';
 
 /**

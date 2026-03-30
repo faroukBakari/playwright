@@ -19,7 +19,7 @@ import fs from 'fs';
 import net from 'net';
 import path from 'path';
 
-import * as playwright from '../..';
+import * as playwright from '../inprocess';
 import { registryDirectory } from '../server/registry/index';
 import { testDebug } from './log';
 import { outputDir } from '../tools/context';

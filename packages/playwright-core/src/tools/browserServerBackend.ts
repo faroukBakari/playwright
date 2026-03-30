@@ -21,6 +21,7 @@ import { createPerfLog } from './perfLog';
 import { createErrorLog } from './errorLog';
 import { debug } from '../utilsBundle';
 import { serverLog } from '../mcp/log';
+import { DEFAULT_TIMEOUT_MATRIX } from '../mcp/config';
 import crypto from 'crypto';
 
 import type { SnapshotMode } from './snapshotOptions';
@@ -172,7 +173,7 @@ export class BrowserServerBackend implements ServerBackend {
   private _resolveTimeout(name: string, _toolType: string, timeoutSec: number | undefined): number {
     if (timeoutSec !== undefined)
       return timeoutSec * 1000;
-    const budget = this._config.timeoutMatrix.budget;
+    const budget = (this._config.timeoutMatrix ?? DEFAULT_TIMEOUT_MATRIX).budget;
     if (BrowserServerBackend.NAVIGATE_TOOLS.has(name))
       return budget.navigate;
     if (name === 'browser_run_code')

@@ -16,4 +16,24 @@
 
 import { createInProcessPlaywright } from './inProcessFactory';
 
-module.exports = createInProcessPlaywright();
+// Re-export types so `import * as playwright` consumers can reference
+// `playwright.Browser`, `playwright.BrowserContext`, etc. in type position.
+// Uses the public API types (types/types.d.ts) — not the internal classes —
+// because BrowserType.connectOverCDP() returns the public interface.
+export type { Browser, BrowserContext } from '../types/types';
+export type { BrowserType } from './client/browserType';
+export type { Selectors } from './client/selectors';
+export type { Playwright } from './client/playwright';
+
+const playwright = createInProcessPlaywright();
+
+// Named exports for `import { chromium } from '../inprocess'` and
+// `import * as pw from '../inprocess'; pw.chromium` patterns.
+export const chromium = playwright.chromium;
+export const firefox = playwright.firefox;
+export const webkit = playwright.webkit;
+export const devices = playwright.devices;
+export const selectors = playwright.selectors;
+
+// CommonJS default for `require('../inprocess')` callers.
+module.exports = playwright;

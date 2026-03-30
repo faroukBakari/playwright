@@ -13,6 +13,10 @@ yarn.lock
 /packages/playwright-core/src/generated
 /packages/playwright-ct-core/src/generated
 packages/*/lib/
+# Dev-mode symlinks: src/*BundleImpl → bundles/*/out (tsx needs these)
+/packages/playwright-core/src/utilsBundleImpl
+/packages/playwright-core/src/mcpBundleImpl
+/packages/playwright-core/src/zipBundleImpl.js
 drivers/
 .android-sdk/
 .gradle/

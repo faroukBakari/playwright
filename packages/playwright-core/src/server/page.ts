@@ -870,7 +870,7 @@ export class Page extends SdkObject<PageEventMap> {
     await Promise.all(this.frames().map(frame => frame.hideHighlight().catch(() => {})));
   }
 
-  async snapshotForAI(progress: Progress, options: { track?: string, doNotRenderActive?: boolean, interactableOnly?: boolean, includeUrls?: boolean, rootSelector?: string } = {}): Promise<{ full: string, incremental?: string }> {
+  async snapshotForAI(progress: Progress, options: { track?: string, doNotRenderActive?: boolean, interactableOnly?: boolean, includeUrls?: boolean, rootSelector?: string } = {}): Promise<{ full: string, incremental?: string, selectorResolved?: boolean }> {
     const snapshot = await snapshotFrameForAI(progress, this.mainFrame(), options);
     const full = snapshot.full.join('\n');
     const incremental = snapshot.incremental?.join('\n');

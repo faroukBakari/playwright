@@ -191,10 +191,15 @@ export async function installHttpTransport(httpServer: http.Server, serverBacken
       process.emit('SIGINT');
       return;
     }
-    // Sideband paths handled by relay HTTP endpoints — skip MCP transport
+    // Sideband paths live on the relay HTTP server, not the MCP transport.
+    // Return 404 with a helpful message instead of hanging the connection.
     const sidebandPaths = ['/sessions', '/tabs', '/downloads', '/test/'];
-    if (sidebandPaths.some(p => url.pathname.startsWith(p)))
+    if (sidebandPaths.some(p => url.pathname.startsWith(p))) {
+      res.statusCode = 404;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ error: 'Sideband endpoint — use the relay HTTP port (see .local/relay.port)' }));
       return;
+    }
     if (url.pathname.startsWith('/sse'))
       await handleSSE(serverBackendFactory, req, res, url, sseSessions);
     else
@@ -237,6 +242,29 @@ async function handleSSE(serverBackendFactory: ServerBackendFactory, req: http.I
   res.end('Method not allowed');
 }
 
+// Idle timeout per Streamable HTTP session. When no request arrives within
+// the TTL, the transport is closed — triggering disposed → browser close →
+// relay WS close → slot freed. Without this, Streamable HTTP sessions live
+// forever (no persistent connection to detect client departure).
+// 2 minutes: must exceed the longest agent thinking gap between tool calls.
+// Haiku: 30-60s between calls. Sonnet/Opus: up to 90s. 120s covers all tiers.
+const SESSION_IDLE_TTL = 120_000;
+const sessionIdleTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function resetSessionIdleTimer(sessionId: string, sessions: Map<string, StreamableHTTPServerTransport>) {
+  const existing = sessionIdleTimers.get(sessionId);
+  if (existing)
+    clearTimeout(existing);
+  sessionIdleTimers.set(sessionId, setTimeout(async () => {
+    sessionIdleTimers.delete(sessionId);
+    const transport = sessions.get(sessionId);
+    if (!transport)
+      return;
+    serverLog('lifecycle', `session idle timeout (${SESSION_IDLE_TTL}ms): ${sessionId}`);
+    await transport.close();
+  }, SESSION_IDLE_TTL));
+}
+
 async function handleStreamable(
   serverBackendFactory: ServerBackendFactory,
   req: http.IncomingMessage,
@@ -248,8 +276,10 @@ async function handleStreamable(
   const sessionId = req.headers['mcp-session-id'] as string | undefined;
   if (sessionId) {
     const transport = sessions.get(sessionId);
-    if (transport)
+    if (transport) {
+      resetSessionIdleTimer(sessionId, sessions);
       return await transport.handleRequest(req, res);
+    }
 
     // Stale session recovery: client has a session ID from a previous server
     // instance. If it matches the persisted ID, transparently re-initialize
@@ -298,6 +328,11 @@ async function handleStreamable(
     transport.onclose = () => {
       if (!transport.sessionId)
         return;
+      const timer = sessionIdleTimers.get(transport.sessionId);
+      if (timer) {
+        clearTimeout(timer);
+        sessionIdleTimers.delete(transport.sessionId);
+      }
       sessions.delete(transport.sessionId);
       // Don't delete session state — it must survive server restarts for
       // stale session recovery. The file is overwritten when a new session
@@ -307,6 +342,9 @@ async function handleStreamable(
     };
 
     await transport.handleRequest(req, res);
+    // Start the idle timer after the first request is processed
+    if (transport.sessionId)
+      resetSessionIdleTimer(transport.sessionId, sessions);
     return;
   }
 

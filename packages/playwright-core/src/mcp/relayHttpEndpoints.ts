@@ -18,13 +18,27 @@ import type http from 'http';
 
 import type { RelayState } from './cdpRelay';
 
+const SIDEBAND_TIMEOUT = 10_000;
+
 export interface RelayHTTPDelegate {
   activeSessions(): Array<{ sessionId: string; cdpSessionId: string | null; tab: { tabId: number; url: string } | null; status?: string }>;
   readonly state: RelayState;
-  listTabs(): Promise<any>;
-  createTab(sessionId: string, url?: string): Promise<any>;
-  attachTab(sessionId: string, tabId: number): Promise<any>;
+  listTabs(options?: { timeout?: number }): Promise<any>;
+  createTab(sessionId: string, url?: string, options?: { timeout?: number }): Promise<any>;
+  attachTab(sessionId: string, tabId: number, options?: { timeout?: number }): Promise<any>;
   sendCustomCommand?(method: string, params: any, options?: { timeout?: number }): Promise<any>;
+}
+
+function sendError(res: http.ServerResponse, e: Error): void {
+  res.setHeader('Content-Type', 'application/json');
+  if (e.message.includes('not connected')) {
+    res.statusCode = 503;
+  } else if (e.message.includes('timed out')) {
+    res.statusCode = 504;
+  } else {
+    res.statusCode = 500;
+  }
+  res.end(JSON.stringify({ error: e.message }));
 }
 
 export function installRelayHTTPEndpoints(server: http.Server, relay: RelayHTTPDelegate): void {
@@ -40,14 +54,12 @@ export function installRelayHTTPEndpoints(server: http.Server, relay: RelayHTTPD
 
     if (url.pathname === '/tabs' && req.method === 'GET') {
       try {
-        const result = await relay.listTabs();
+        const result = await relay.listTabs({ timeout: SIDEBAND_TIMEOUT });
         res.setHeader('Content-Type', 'application/json');
         res.statusCode = 200;
         res.end(JSON.stringify(result));
       } catch (e: any) {
-        res.setHeader('Content-Type', 'application/json');
-        res.statusCode = 503;
-        res.end(JSON.stringify({ error: e.message }));
+        sendError(res, e);
       }
       return;
     }
@@ -70,14 +82,12 @@ export function installRelayHTTPEndpoints(server: http.Server, relay: RelayHTTPD
             res.end(JSON.stringify({ error: 'sessionId is required' }));
             return;
           }
-          const result = await relay.createTab(sessionId, tabUrl);
+          const result = await relay.createTab(sessionId, tabUrl, { timeout: SIDEBAND_TIMEOUT });
           res.setHeader('Content-Type', 'application/json');
           res.statusCode = 200;
           res.end(JSON.stringify(result));
         } catch (e: any) {
-          res.setHeader('Content-Type', 'application/json');
-          res.statusCode = 500;
-          res.end(JSON.stringify({ error: e.message }));
+          sendError(res, e);
         }
       });
       return;
@@ -101,14 +111,12 @@ export function installRelayHTTPEndpoints(server: http.Server, relay: RelayHTTPD
             res.end(JSON.stringify({ error: 'sessionId and tabId are required' }));
             return;
           }
-          const result = await relay.attachTab(sessionId, tabId);
+          const result = await relay.attachTab(sessionId, tabId, { timeout: SIDEBAND_TIMEOUT });
           res.setHeader('Content-Type', 'application/json');
           res.statusCode = 200;
           res.end(JSON.stringify(result));
         } catch (e: any) {
-          res.setHeader('Content-Type', 'application/json');
-          res.statusCode = 500;
-          res.end(JSON.stringify({ error: e.message }));
+          sendError(res, e);
         }
       });
       return;
@@ -136,9 +144,7 @@ export function installRelayHTTPEndpoints(server: http.Server, relay: RelayHTTPD
           res.statusCode = 200;
           res.end(JSON.stringify({ result }));
         } catch (e: any) {
-          res.setHeader('Content-Type', 'application/json');
-          res.statusCode = 500;
-          res.end(JSON.stringify({ error: e.message }));
+          sendError(res, e);
         }
       });
       return;
@@ -153,14 +159,12 @@ export function installRelayHTTPEndpoints(server: http.Server, relay: RelayHTTPD
       req.on('end', async () => {
         try {
           const params = JSON.parse(body);
-          const result = await relay.sendCustomCommand!('Downloads.listDownloads', params || {});
+          const result = await relay.sendCustomCommand!('Downloads.listDownloads', params || {}, { timeout: SIDEBAND_TIMEOUT });
           res.setHeader('Content-Type', 'application/json');
           res.statusCode = 200;
           res.end(JSON.stringify({ result }));
         } catch (e: any) {
-          res.setHeader('Content-Type', 'application/json');
-          res.statusCode = 500;
-          res.end(JSON.stringify({ error: e.message }));
+          sendError(res, e);
         }
       });
       return;
@@ -182,14 +186,12 @@ export function installRelayHTTPEndpoints(server: http.Server, relay: RelayHTTPD
             res.end(JSON.stringify({ error: 'method is required' }));
             return;
           }
-          const result = await relay.sendCustomCommand!(method, params || {});
+          const result = await relay.sendCustomCommand!(method, params || {}, { timeout: SIDEBAND_TIMEOUT });
           res.setHeader('Content-Type', 'application/json');
           res.statusCode = 200;
           res.end(JSON.stringify({ result }));
         } catch (e: any) {
-          res.setHeader('Content-Type', 'application/json');
-          res.statusCode = 500;
-          res.end(JSON.stringify({ error: e.message }));
+          sendError(res, e);
         }
       });
       return;

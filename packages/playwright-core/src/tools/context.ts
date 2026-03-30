@@ -22,7 +22,7 @@ import { disposeAll } from '../client/disposable';
 import { eventsHelper } from '../client/eventEmitter';
 import { debug } from '../utilsBundle';
 import { escapeWithQuotes } from '../utils/isomorphic/stringUtils';
-import { selectors } from '../..';
+import { selectors } from '../inprocess';
 
 import { Tab } from './tab';
 import { relayHttpUrl } from '../mcp/extensionContextFactory';
@@ -67,14 +67,25 @@ export type ContextConfig = {
     gatesEnabled?: boolean;
     gateTimeoutMs?: number;
     waitForTimeout?: number;
+    includeUrls?: boolean;
   };
   testIdAttribute?: string;
   timeouts?: {
-    action?: number;
-    navigation?: number;
-    expect?: number;
+    budget?: {
+      default?: number;
+      navigate?: number;
+      runCode?: number;
+    };
+    playwright?: {
+      action?: number;
+      navigation?: number;
+      expect?: number;
+    };
+    infrastructure?: {
+      bridgeBuffer?: number;
+    };
   };
-  timeoutMatrix: TimeoutMatrix;
+  timeoutMatrix?: TimeoutMatrix;
   logging?: {
     retentionDays?: number;
   };
