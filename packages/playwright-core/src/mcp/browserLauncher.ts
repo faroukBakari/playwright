@@ -25,7 +25,7 @@ import { serverLog } from './log';
  * Extracted from CDPRelayServer to keep the relay focused on WebSocket routing.
  */
 export function launchBrowserToExtension(extensionEndpoint: string, forceNewTab: boolean): void {
-  // ia-custom: Extension ID is configurable via env var for test compatibility.
+  // fork: Extension ID is configurable via env var for test compatibility.
   // Default: our unpacked extension ID (stable per deploy dir %LOCALAPPDATA%\playwright-mcp-bridge\).
   // Upstream published ID: mmlmfjhmonkocbjadbfplnigmagldckm
   // Tests inject the published key into the manifest, producing the published ID —
@@ -35,7 +35,7 @@ export function launchBrowserToExtension(extensionEndpoint: string, forceNewTab:
   url.searchParams.set('mcpRelayUrl', extensionEndpoint);
   const client = {
     name: 'Playwright Agent',
-    // ia-custom: ../../ resolves to playwright-core/ in monorepo layout
+    // fork: ../../ resolves to playwright-core/ in monorepo layout
     // (upstream uses ../../../ which resolves to package root in published npm)
     version: require('../../package.json').version,
   };
