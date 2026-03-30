@@ -288,6 +288,14 @@ export function parseUnserializableValue(unserializableValue: string): any {
 export function normalizeEvaluationExpression(expression: string, isFunction: boolean | undefined): string {
   expression = expression.trim();
 
+  // Strip esbuild keepNames __name() wrappers injected when running under tsx.
+  // tsx hardcodes keepNames:true, which wraps inner named const declarations with
+  // __name(fn, "name"). When functions are .toString()'d for browser evaluation,
+  // these references cause ReferenceError in the page context. Replace with an
+  // inline identity function that preserves the semantics.
+  if (expression.includes('__name'))
+    expression = expression.replace(/\b__name\b/g, '((f,_)=>f)');
+
   if (isFunction) {
     try {
       new Function('(' + expression + ')');
