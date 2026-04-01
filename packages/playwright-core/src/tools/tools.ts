@@ -24,7 +24,6 @@ import devtools from './devtools';
 import downloads from './downloads';
 import dialogs from './dialogs';
 import evaluate from './evaluate';
-import feedback from './feedback';
 import files from './files';
 import form from './form';
 import keyboard from './keyboard';
@@ -60,7 +59,6 @@ export const browserTools: Tool<any>[] = [
   ...downloads,
   ...dialogs,
   ...evaluate,
-  ...feedback,
   ...files,
   ...form,
   ...keyboard,
