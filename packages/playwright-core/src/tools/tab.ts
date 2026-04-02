@@ -123,6 +123,12 @@ export class Tab extends EventEmitter<TabEventsInterface> {
     return { timeout: this._minTimeout(this._expectTimeoutCeiling) };
   }
 
+  // Screenshots are not subject to the action ceiling — they should use the
+  // full remaining budget. Calling _minTimeout(undefined) skips all ceilings.
+  get screenshotTimeoutOptions(): { timeout?: number } {
+    return { timeout: this._minTimeout(undefined) };
+  }
+
   private _minTimeout(ceiling: number | undefined): number | undefined {
     const remaining = this.context.remainingBudget();
     if (ceiling === undefined && remaining === Infinity)
