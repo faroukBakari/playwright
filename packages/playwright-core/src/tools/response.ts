@@ -316,8 +316,6 @@ export class Response {
     const tabSnapshot = hasTab && wantsSnapshot ? await this._context.currentTabOrDie().captureSnapshot(this._clientWorkspace, { rootSelector: this._snapshotSelector, clientId: this._context.id }) : undefined;
     if (tabSnapshot?.selectorResolved === false && this._snapshotSelector)
       resultContent.push(`snapshotSelector '${this._snapshotSelector}' matched no elements — returning full page snapshot`);
-    if (tabSnapshot?.selectorResolved === true && this._snapshotSelector)
-      resultContent.push(`selectorResolved: true — snapshotSelector '${this._snapshotSelector}' matched`);
     requestDebug('tool=%s snapshot=%s hasTab=%s', this.toolName, this._includeSnapshot, hasTab);
     const tabHeaders = wantsSnapshot ? await Promise.all(this._context.tabs().map(tab => tab.headerSnapshot())) : [];
     if (wantsSnapshot || tabHeaders.some(header => header.changed)) {

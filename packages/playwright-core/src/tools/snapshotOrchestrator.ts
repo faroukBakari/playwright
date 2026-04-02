@@ -210,7 +210,7 @@ export class SnapshotOrchestrator {
 
       const snapshot = await this._context.perfLog.timeAsync({
         phase: 'snapshot', step: 'capture', side: 'chrome',
-        target_ms: 8000,
+        target_ms: this._context.config.timeouts?.budget?.default ?? 5000,
         interactableOnly: !!interactableOnly,
         rootSelector: rootSelector || undefined,
       }, () => this._page._snapshotForAI({ track: `response-${options?.clientId ?? this._context.id}`, interactableOnly, includeUrls, rootSelector }), (result) => ({
