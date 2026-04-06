@@ -169,16 +169,29 @@ export class BrowserServerBackend implements ServerBackend {
   // Tools with noTabRequired: true can run without an active tab — all others fast-fail
   // with a descriptive error instead of timing out.
 
-  private _resolveTimeout(name: string, _toolType: string, timeoutSec: number | undefined): number {
-    if (timeoutSec !== undefined)
-      return timeoutSec * 1000;
+  private _resolveTimeout(tool: Tool, rawArguments: Record<string, unknown> | undefined, timeoutSec: number | undefined): number {
+    // Tier budget: name-based dispatch (existing logic)
     const b = this._config.timeouts?.budget;
     const budget = { default: b?.default ?? 5000, navigate: b?.navigate ?? 15000, runCode: b?.runCode ?? 30000 };
-    if (BrowserServerBackend.NAVIGATE_TOOLS.has(name))
-      return budget.navigate;
-    if (name === 'browser_run_code')
-      return budget.runCode;
-    return budget.default;
+    let tierBudget: number;
+    if (BrowserServerBackend.NAVIGATE_TOOLS.has(tool.schema.name))
+      tierBudget = budget.navigate;
+    else if (tool.schema.name === 'browser_run_code')
+      tierBudget = budget.runCode;
+    else
+      tierBudget = budget.default;
+
+    // Computed floor: tool declares its minimum based on args
+    const computedFloor = tool.schema.minBudget?.(rawArguments ?? {}) ?? 0;
+
+    // Effective default: max of tier and computed floor
+    const effectiveDefault = Math.max(tierBudget, computedFloor);
+
+    // Per-call override: user can escalate above floor, but not below it
+    if (timeoutSec !== undefined)
+      return Math.max(timeoutSec * 1000, computedFloor);
+
+    return effectiveDefault;
   }
 
   private async _resolveContext(sessionId?: string): Promise<Context> {
@@ -229,7 +242,7 @@ export class BrowserServerBackend implements ServerBackend {
     // via inputSchema.parse(). Tools without it in their schema get it stripped by zod.
     const timeoutSec = rawArguments?.timeout !== undefined
       ? Number(rawArguments.timeout) : undefined;
-    const timeoutMs = this._resolveTimeout(name, tool.schema.type, timeoutSec);
+    const timeoutMs = this._resolveTimeout(tool, rawArguments as Record<string, unknown> | undefined, timeoutSec);
 
     const parsedArguments = tool.schema.inputSchema.parse(rawArguments || {}) as any;
     const cwd = rawArguments?._meta && typeof rawArguments?._meta === 'object' && (rawArguments._meta as any)?.cwd;

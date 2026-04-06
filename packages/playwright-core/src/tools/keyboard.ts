@@ -90,6 +90,13 @@ const type = defineTabTool({
     description: 'Type text into editable element. Returns a snapshot after typing.',
     inputSchema: typeSchema,
     type: 'input',
+    minBudget: (rawArgs) => {
+      if (!rawArgs.slowly)
+        return 0;  // Fast path: single fill(), no issue at default budget
+      const textLen = typeof rawArgs.text === 'string' ? rawArgs.text.length : 0;
+      // pressSequentially: ~50ms/char + snapshot pipeline overhead
+      return Math.max(5000, textLen * 50 + 2500);
+    },
   },
 
   handle: async (tab, params, response) => {

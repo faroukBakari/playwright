@@ -28,6 +28,8 @@ type ToolSchema<Input extends z.Schema> = {
   description: string;
   inputSchema: Input;
   type: 'input' | 'assertion' | 'action' | 'readOnly';
+  /** Compute minimum timeout budget (ms) from raw args. Floor — user timeout cannot go below this. */
+  minBudget?: (rawArgs: Record<string, unknown>) => number;
 };
 
 export type ToolCapability = 'config' | 'core' | 'core-navigation' | 'core-tabs' | 'core-input' | 'core-install' | 'network' | 'pdf' | 'storage' | 'testing' | 'vision' | 'devtools' | 'downloads';

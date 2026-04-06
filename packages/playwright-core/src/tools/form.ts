@@ -39,6 +39,17 @@ const fillForm = defineTabTool({
       ...snapshotOptionsSchema.shape,
     }),
     type: 'input',
+    minBudget: (rawArgs) => {
+      const fieldCount = Array.isArray(rawArgs.fields) ? rawArgs.fields.length : 1;
+      const hasSubmit = typeof rawArgs.submitRef === 'string';
+      // Per-field: 800ms covers action + settle (P95 browser_type ~150ms with headroom)
+      const fieldCost = fieldCount * 800;
+      // Submit: click P95 (3001ms) + nav P95 (2132ms) + buffer = ~7000ms
+      const submitCost = hasSubmit ? 7000 : 0;
+      // Snapshot: SPA gate active after nav (1000ms margin) vs simple capture (500ms)
+      const snapshotCost = hasSubmit ? 1500 : 500;
+      return Math.max(5000, fieldCost + submitCost + snapshotCost);
+    },
   },
 
   handle: async (tab, params, response) => {
