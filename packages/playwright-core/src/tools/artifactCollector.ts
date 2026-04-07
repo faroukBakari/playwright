@@ -24,6 +24,7 @@ export type Download = {
   download: playwright.Download;
   finished: boolean;
   outputFile: string;
+  saveSucceeded?: boolean;
 };
 
 export type ConsoleLogEntry = {
@@ -158,6 +159,14 @@ export class ArtifactCollector {
     this._addLogEntry({ type: 'download-start', wallTime: Date.now(), download: entry });
     void download.saveAs(entry.outputFile).then(() => {
       entry.finished = true;
+      entry.saveSucceeded = true;
+      this._addLogEntry({ type: 'download-finish', wallTime: Date.now(), download: entry });
+    }).catch(() => {
+      // In relay mode (CDP bridge), the file is downloaded by Chrome on Windows
+      // and isn't accessible from the server filesystem. saveAs fails but the
+      // download itself succeeded — surface the completion event anyway.
+      entry.finished = true;
+      entry.saveSucceeded = false;
       this._addLogEntry({ type: 'download-finish', wallTime: Date.now(), download: entry });
     });
     return entry;

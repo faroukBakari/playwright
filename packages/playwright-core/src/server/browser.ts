@@ -141,6 +141,8 @@ export abstract class Browser extends SdkObject {
   }
 
   _downloadCreated(page: Page, uuid: string, url: string, suggestedFilename?: string, downloadFilename?: string) {
+    if (this._downloads.has(uuid))
+      return;
     const download = new Download(page, this.options.downloadsPath || '', uuid, url, suggestedFilename, downloadFilename);
     this._downloads.set(uuid, download);
   }

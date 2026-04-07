@@ -415,6 +415,8 @@ class FrameSession {
       eventsHelper.addEventListener(this._client, 'Page.frameNavigated', event => this._onFrameNavigated(event.frame, false)),
       eventsHelper.addEventListener(this._client, 'Page.frameRequestedNavigation', event => this._onFrameRequestedNavigation(event)),
       eventsHelper.addEventListener(this._client, 'Page.javascriptDialogOpening', event => this._onDialog(event)),
+      eventsHelper.addEventListener(this._client, 'Page.downloadWillBegin', event => this._onPageDownloadWillBegin(event)),
+      eventsHelper.addEventListener(this._client, 'Page.downloadProgress', event => this._onPageDownloadProgress(event)),
       eventsHelper.addEventListener(this._client, 'Page.navigatedWithinDocument', event => this._onFrameNavigatedWithinDocument(event.frameId, event.url)),
       eventsHelper.addEventListener(this._client, 'Runtime.bindingCalled', event => this._onBindingCalled(event)),
       eventsHelper.addEventListener(this._client, 'Runtime.consoleAPICalled', event => this._onConsoleAPI(event)),
@@ -879,6 +881,26 @@ class FrameSession {
       // after the download begins.
       this._firstNonInitialNavigationCommittedReject(new Error('Starting new page download'));
     }
+  }
+
+  _onPageDownloadWillBegin(event: Protocol.Page.downloadWillBeginPayload) {
+    // Page.downloadWillBegin is the page-level equivalent of Browser.downloadWillBegin.
+    // In relay mode (CDP bridge), only page-level events are forwarded — the browser-level
+    // Browser.downloadWillBegin never fires. This handler surfaces download events that
+    // would otherwise be silently dropped. The dedup guard in browser._downloadCreated
+    // prevents double-firing when both Browser and Page events arrive (non-relay mode).
+    this._crPage.willBeginDownload();
+    const page = this._crPage._page.initializedOrUndefined();
+    if (!page)
+      return;
+    this._crPage._browserContext._browser._downloadCreated(page, event.guid, event.url, event.suggestedFilename);
+  }
+
+  _onPageDownloadProgress(event: Protocol.Page.downloadProgressPayload) {
+    if (event.state === 'completed')
+      this._crPage._browserContext._browser._downloadFinished(event.guid, '');
+    else if (event.state === 'canceled')
+      this._crPage._browserContext._browser._downloadFinished(event.guid, 'canceled');
   }
 
   _onScreencastFrame(payload: Protocol.Page.screencastFramePayload) {

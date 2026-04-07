@@ -400,9 +400,12 @@ export class Response {
             }
           }
         } else if (event.type === 'download-start') {
-          text.push(`- Downloading file ${event.download.download.suggestedFilename()} ...`);
+          text.push(`- [DOWNLOAD] ${event.download.download.suggestedFilename()} — ${event.download.download.url()}`);
         } else if (event.type === 'download-finish') {
-          text.push(`- Downloaded file ${event.download.download.suggestedFilename()} to "${this._computRelativeTo(event.download.outputFile)}"`);
+          if (event.download.saveSucceeded)
+            text.push(`- [DOWNLOAD COMPLETE] ${event.download.download.suggestedFilename()} — saved to "${this._computRelativeTo(event.download.outputFile)}"`);
+          else
+            text.push(`- [DOWNLOAD COMPLETE] ${event.download.download.suggestedFilename()}`);
         }
       }
       flushConsoleGroup();
