@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-export { Android, AndroidDevice, AndroidInput, AndroidSocket, AndroidWebView } from './android';
 export { Browser } from './browser';
 export { BrowserContext } from './browserContext';
 export type { BrowserServer } from './browserType';
@@ -25,7 +24,6 @@ export { Coverage } from './coverage';
 export { Dialog } from './dialog';
 export type { Disposable } from './disposable';
 export { Download } from './download';
-export { Electron, ElectronApplication } from './electron';
 export { FrameLocator, Locator } from './locator';
 export { ElementHandle } from './elementHandle';
 export { FileChooser } from './fileChooser';

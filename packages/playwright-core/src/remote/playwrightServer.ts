@@ -27,7 +27,6 @@ import { SocksProxy } from '../server/utils/socksProxy';
 import { Browser } from '../server/browser';
 import { ProgressController } from '../server/progress';
 
-import type { AndroidDevice } from '../server/android/android';
 import type { Playwright } from '../server/playwright';
 import type { LaunchOptions as LaunchOptionsWithoutTimeout } from '../server/types';
 
@@ -38,7 +37,6 @@ type ServerOptions = {
   maxConnections: number;
   mode: 'default' | 'launchServer' | 'launchServerShared' | 'extension';
   preLaunchedBrowser?: Browser;
-  preLaunchedAndroidDevice?: AndroidDevice;
   preLaunchedSocksProxy?: SocksProxy;
   artifactsDir?: string;
 };
@@ -56,8 +54,6 @@ export class PlaywrightServer {
       this._playwright = options.preLaunchedBrowser.attribution.playwright;
       this._dontReuse(options.preLaunchedBrowser);
     }
-    if (options.preLaunchedAndroidDevice)
-      this._playwright = options.preLaunchedAndroidDevice._android.attribution.playwright;
     this._playwright ??= createPlaywright({ sdkLanguage: 'javascript', isServer: true });
 
     const browserSemaphore = new Semaphore(this._options.maxConnections);
@@ -157,14 +153,7 @@ export class PlaywrightServer {
             );
           }
 
-          return new PlaywrightConnection(
-              browserSemaphore,
-              new WebSocketServerTransport(ws),
-              false,
-              this._playwright,
-              () => this._initPreLaunchedAndroidMode(id),
-              id,
-          );
+          throw new Error('Pre-launched mode requires a pre-launched browser');
         }
 
         return new PlaywrightConnection(
@@ -264,15 +253,6 @@ export class PlaywrightServer {
       preLaunchedBrowser: browser,
       socksProxy: this._options.preLaunchedSocksProxy,
       sharedBrowser: this._options.mode === 'launchServerShared',
-      denyLaunch: true,
-    };
-  }
-
-  private async _initPreLaunchedAndroidMode(id: string): Promise<PlaywrightInitializeResult> {
-    debugLogger.log('server', `[${id}] engaged pre-launched (Android) mode`);
-    const androidDevice = this._options.preLaunchedAndroidDevice!;
-    return {
-      preLaunchedAndroidDevice: androidDevice,
       denyLaunch: true,
     };
   }

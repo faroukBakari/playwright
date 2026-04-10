@@ -32,9 +32,9 @@ import type { WebSocketEventEmitter } from './utilsBundle';
 import type { Browser } from './server/browser';
 
 export class BrowserServerLauncherImpl implements BrowserServerLauncher {
-  private _browserName: 'chromium' | 'firefox' | 'webkit';
+  private _browserName: 'chromium';
 
-  constructor(browserName: 'chromium' | 'firefox' | 'webkit') {
+  constructor(browserName: 'chromium') {
     this._browserName = browserName;
   }
 

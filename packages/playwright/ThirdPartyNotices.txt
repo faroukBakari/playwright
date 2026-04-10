@@ -64,14 +64,23 @@ This project incorporates components from the projects listed below. The origina
 -	@jridgewell/sourcemap-codec@1.5.4 (https://github.com/jridgewell/sourcemaps)
 -	@jridgewell/trace-mapping@0.3.29 (https://github.com/jridgewell/sourcemaps)
 -	@sinclair/typebox@0.34.41 (https://github.com/sinclairzx81/typebox)
+-	@types/babel__code-frame@7.0.6 (https://github.com/DefinitelyTyped/DefinitelyTyped)
+-	@types/babel__core@7.20.5 (https://github.com/DefinitelyTyped/DefinitelyTyped)
+-	@types/babel__generator@7.6.5 (https://github.com/DefinitelyTyped/DefinitelyTyped)
+-	@types/babel__helper-plugin-utils@7.10.3 (https://github.com/DefinitelyTyped/DefinitelyTyped)
+-	@types/babel__template@7.4.2 (https://github.com/DefinitelyTyped/DefinitelyTyped)
+-	@types/babel__traverse@7.20.6 (https://github.com/DefinitelyTyped/DefinitelyTyped)
 -	@types/debug@4.1.12 (https://github.com/DefinitelyTyped/DefinitelyTyped)
 -	@types/istanbul-lib-coverage@2.0.6 (https://github.com/DefinitelyTyped/DefinitelyTyped)
 -	@types/istanbul-lib-report@3.0.3 (https://github.com/DefinitelyTyped/DefinitelyTyped)
 -	@types/istanbul-reports@3.0.4 (https://github.com/DefinitelyTyped/DefinitelyTyped)
 -	@types/mdast@4.0.4 (https://github.com/DefinitelyTyped/DefinitelyTyped)
 -	@types/ms@2.1.0 (https://github.com/DefinitelyTyped/DefinitelyTyped)
+-	@types/node@18.6.4 (https://github.com/DefinitelyTyped/DefinitelyTyped)
 -	@types/node@24.9.2 (https://github.com/DefinitelyTyped/DefinitelyTyped)
+-	@types/source-map-support@0.5.4 (https://github.com/DefinitelyTyped/DefinitelyTyped)
 -	@types/stack-utils@2.0.3 (https://github.com/DefinitelyTyped/DefinitelyTyped)
+-	@types/stoppable@1.1.1 (https://github.com/DefinitelyTyped/DefinitelyTyped)
 -	@types/unist@3.0.3 (https://github.com/DefinitelyTyped/DefinitelyTyped)
 -	@types/yargs-parser@21.0.3 (https://github.com/DefinitelyTyped/DefinitelyTyped)
 -	@types/yargs@17.0.34 (https://github.com/DefinitelyTyped/DefinitelyTyped)
@@ -1964,6 +1973,162 @@ THE SOFTWARE.
 =========================================
 END OF @sinclair/typebox@0.34.41 AND INFORMATION
 
+%% @types/babel__code-frame@7.0.6 NOTICES AND INFORMATION BEGIN HERE
+=========================================
+MIT License
+
+    Copyright (c) Microsoft Corporation.
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE
+=========================================
+END OF @types/babel__code-frame@7.0.6 AND INFORMATION
+
+%% @types/babel__core@7.20.5 NOTICES AND INFORMATION BEGIN HERE
+=========================================
+MIT License
+
+    Copyright (c) Microsoft Corporation.
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE
+=========================================
+END OF @types/babel__core@7.20.5 AND INFORMATION
+
+%% @types/babel__generator@7.6.5 NOTICES AND INFORMATION BEGIN HERE
+=========================================
+MIT License
+
+    Copyright (c) Microsoft Corporation.
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE
+=========================================
+END OF @types/babel__generator@7.6.5 AND INFORMATION
+
+%% @types/babel__helper-plugin-utils@7.10.3 NOTICES AND INFORMATION BEGIN HERE
+=========================================
+MIT License
+
+    Copyright (c) Microsoft Corporation.
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE
+=========================================
+END OF @types/babel__helper-plugin-utils@7.10.3 AND INFORMATION
+
+%% @types/babel__template@7.4.2 NOTICES AND INFORMATION BEGIN HERE
+=========================================
+MIT License
+
+    Copyright (c) Microsoft Corporation.
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE
+=========================================
+END OF @types/babel__template@7.4.2 AND INFORMATION
+
+%% @types/babel__traverse@7.20.6 NOTICES AND INFORMATION BEGIN HERE
+=========================================
+MIT License
+
+    Copyright (c) Microsoft Corporation.
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE
+=========================================
+END OF @types/babel__traverse@7.20.6 AND INFORMATION
+
 %% @types/debug@4.1.12 NOTICES AND INFORMATION BEGIN HERE
 =========================================
 MIT License
@@ -2120,6 +2285,32 @@ MIT License
 =========================================
 END OF @types/ms@2.1.0 AND INFORMATION
 
+%% @types/node@18.6.4 NOTICES AND INFORMATION BEGIN HERE
+=========================================
+MIT License
+
+    Copyright (c) Microsoft Corporation.
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE
+=========================================
+END OF @types/node@18.6.4 AND INFORMATION
+
 %% @types/node@24.9.2 NOTICES AND INFORMATION BEGIN HERE
 =========================================
 MIT License
@@ -2146,6 +2337,32 @@ MIT License
 =========================================
 END OF @types/node@24.9.2 AND INFORMATION
 
+%% @types/source-map-support@0.5.4 NOTICES AND INFORMATION BEGIN HERE
+=========================================
+MIT License
+
+    Copyright (c) Microsoft Corporation.
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE
+=========================================
+END OF @types/source-map-support@0.5.4 AND INFORMATION
+
 %% @types/stack-utils@2.0.3 NOTICES AND INFORMATION BEGIN HERE
 =========================================
 MIT License
@@ -2171,6 +2388,32 @@ MIT License
     SOFTWARE
 =========================================
 END OF @types/stack-utils@2.0.3 AND INFORMATION
+
+%% @types/stoppable@1.1.1 NOTICES AND INFORMATION BEGIN HERE
+=========================================
+MIT License
+
+    Copyright (c) Microsoft Corporation.
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE
+=========================================
+END OF @types/stoppable@1.1.1 AND INFORMATION
 
 %% @types/unist@3.0.3 NOTICES AND INFORMATION BEGIN HERE
 =========================================
@@ -5037,6 +5280,6 @@ END OF yallist@3.1.1 AND INFORMATION
 
 SUMMARY BEGIN HERE
 =========================================
-Total Packages: 171
+Total Packages: 180
 =========================================
 END OF SUMMARY

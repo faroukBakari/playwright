@@ -33,8 +33,6 @@ import { WebSocketRouteDispatcher } from './webSocketRouteDispatcher';
 import { WritableStreamDispatcher } from './writableStreamDispatcher';
 import { createGuid } from '../utils/crypto';
 import { deserializeURLMatch, urlMatches } from '../../utils/isomorphic/urlMatch';
-import { Recorder } from '../recorder';
-import { RecorderApp } from '../recorder/recorderApp';
 import { ElementHandleDispatcher } from './elementHandlerDispatcher';
 import { JSHandleDispatcher } from './jsHandleDispatcher';
 import { disposeAll } from '../disposable';
@@ -338,12 +336,11 @@ export class BrowserContextDispatcher extends Dispatcher<BrowserContext, channel
   }
 
   async enableRecorder(params: channels.BrowserContextEnableRecorderParams, progress: Progress): Promise<void> {
-    await RecorderApp.show(this._context, params);
+    throw new Error('Recorder not available — stripped from this build');
   }
 
   async disableRecorder(params: channels.BrowserContextDisableRecorderParams, progress: Progress): Promise<void> {
-    const recorder = await Recorder.existingForContext(this._context);
-    await recorder?.setMode('none');
+    // No-op — recorder stripped from this build
   }
 
   async exposeConsoleApi(params: channels.BrowserContextExposeConsoleApiParams, progress: Progress): Promise<void> {

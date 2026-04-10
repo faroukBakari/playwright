@@ -30,8 +30,6 @@ const playwright = createInProcessPlaywright();
 // Named exports for `import { chromium } from '../inprocess'` and
 // `import * as pw from '../inprocess'; pw.chromium` patterns.
 export const chromium = playwright.chromium;
-export const firefox = playwright.firefox;
-export const webkit = playwright.webkit;
 export const devices = playwright.devices;
 export const selectors = playwright.selectors;
 

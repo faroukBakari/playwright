@@ -615,10 +615,10 @@ export interface RootEvents {
 // ----------- Playwright -----------
 export type PlaywrightInitializer = {
   chromium: BrowserTypeChannel,
-  firefox: BrowserTypeChannel,
-  webkit: BrowserTypeChannel,
-  android: AndroidChannel,
-  electron: ElectronChannel,
+  firefox?: BrowserTypeChannel,
+  webkit?: BrowserTypeChannel,
+  android?: AndroidChannel,
+  electron?: ElectronChannel,
   utils?: LocalUtilsChannel,
   preLaunchedBrowser?: BrowserChannel,
   preConnectedAndroidDevice?: AndroidDeviceChannel,

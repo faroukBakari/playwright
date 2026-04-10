@@ -20,7 +20,7 @@ import { createBrowser } from './browserFactory';
 import { BrowserServerBackend } from '../tools/browserServerBackend';
 import { createServer } from './sdk/server';
 
-import type { BrowserContext } from 'playwright';
+import type { BrowserContext } from '../client/browserContext';
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import type { ClientInfo, ServerBackendFactory } from './sdk/server';
 import type { Config } from './config.d';

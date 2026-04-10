@@ -53,9 +53,9 @@ const ARTIFACTS_FOLDER = path.join(os.tmpdir(), 'playwright-artifacts-');
 
 export class Chromium extends BrowserType {
   private _devtools: CRDevTools | undefined;
-  private _bidiChromium: BrowserType;
+  private _bidiChromium?: BrowserType;
 
-  constructor(parent: SdkObject, bidiChromium: BrowserType) {
+  constructor(parent: SdkObject, bidiChromium?: BrowserType) {
     super(parent, 'chromium');
     this._bidiChromium = bidiChromium;
 
@@ -64,14 +64,20 @@ export class Chromium extends BrowserType {
   }
 
   override launch(progress: Progress, options: types.LaunchOptions, protocolLogger?: types.ProtocolLogger): Promise<Browser> {
-    if (options.channel?.startsWith('bidi-'))
+    if (options.channel?.startsWith('bidi-')) {
+      if (!this._bidiChromium)
+        throw new Error('BiDi protocol not available — stripped from this build');
       return this._bidiChromium.launch(progress, options, protocolLogger);
+    }
     return super.launch(progress, options, protocolLogger);
   }
 
   override async launchPersistentContext(progress: Progress, userDataDir: string, options: channels.BrowserTypeLaunchPersistentContextOptions & { cdpPort?: number, internalIgnoreHTTPSErrors?: boolean, socksProxyPort?: number }): Promise<BrowserContext> {
-    if (options.channel?.startsWith('bidi-'))
+    if (options.channel?.startsWith('bidi-')) {
+      if (!this._bidiChromium)
+        throw new Error('BiDi protocol not available — stripped from this build');
       return this._bidiChromium.launchPersistentContext(progress, userDataDir, options);
+    }
     return super.launchPersistentContext(progress, userDataDir, options);
   }
 

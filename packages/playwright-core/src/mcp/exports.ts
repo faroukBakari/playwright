@@ -14,10 +14,8 @@
  * limitations under the License.
  */
 
-export { createClientInfo } from '../cli/client/registry';
 export { logUnhandledError } from './log';
 export { setupExitWatchdog } from './watchdog';
-export { startCliDaemonServer } from '../cli/daemon/daemon';
 export * from './sdk/server';
 export * from './sdk/tool';
 

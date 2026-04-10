@@ -17,6 +17,7 @@
 import { asLocator } from '@isomorphic/locatorGenerators';
 import { stringifySelector } from '@isomorphic/selectorParser';
 
+// @ts-expect-error — Vite ?inline import; resolved by esbuild at bundle time (generate_injected.js), not by tsc.
 import highlightCSS from './highlight.css?inline';
 
 import type { Language } from '@isomorphic/locatorGenerators';

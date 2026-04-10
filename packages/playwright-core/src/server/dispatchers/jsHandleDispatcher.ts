@@ -19,7 +19,8 @@ import { ElementHandleDispatcher } from './elementHandlerDispatcher';
 import { parseSerializedValue, serializeValue } from '../../protocol/serializers';
 
 import type * as js from '../javascript';
-import type { ElectronApplicationDispatcher } from './electronDispatcher';
+import type { DispatcherScope } from './dispatcher';
+type ElectronApplicationDispatcher = DispatcherScope; // Electron support stripped from this build.
 import type { FrameDispatcher } from './frameDispatcher';
 import type { PageDispatcher, WorkerDispatcher } from './pageDispatcher';
 import type * as channels from '@protocol/channels';

@@ -17,7 +17,6 @@
 import fs from 'fs';
 import os from 'os';
 
-import { devices } from '../inprocess';
 import { dotenv } from '../utilsBundle';
 
 import { configFromIniFile } from './configIni';
@@ -47,7 +46,6 @@ export type CLIOptions = {
   consoleLevel?: 'error' | 'warning' | 'info' | 'debug';
   consoleExcludePatterns?: string[];
   consoleMaxEvents?: number;
-  device?: string;
   extension?: boolean;
   executablePath?: string;
   grantPermissions?: string[];
@@ -122,7 +120,7 @@ type BrowserUserConfig = NonNullable<Config['browser']>;
 
 export type FullConfig = Config & {
   browser: Omit<BrowserUserConfig, 'browserName' | 'launchOptions' | 'contextOptions'> & {
-    browserName: 'chromium' | 'firefox' | 'webkit';
+    browserName: 'chromium';
     launchOptions: NonNullable<BrowserUserConfig['launchOptions']>;
     contextOptions: NonNullable<BrowserUserConfig['contextOptions']>;
   },
@@ -205,7 +203,7 @@ export async function validateConfig(config: FullConfig): Promise<void> {
 }
 
 export function configFromCLIOptions(cliOptions: CLIOptions): Config & { configFile?: string } {
-  let browserName: 'chromium' | 'firefox' | 'webkit' | undefined;
+  let browserName: 'chromium' | undefined;
   let channel: string | undefined;
   switch (cliOptions.browser) {
     case 'chrome':
@@ -223,12 +221,6 @@ export function configFromCLIOptions(cliOptions: CLIOptions): Config & { configF
       // Never use old headless.
       browserName = 'chromium';
       channel = 'chrome-for-testing';
-      break;
-    case 'firefox':
-      browserName = 'firefox';
-      break;
-    case 'webkit':
-      browserName = 'webkit';
       break;
   }
 
@@ -252,11 +244,8 @@ export function configFromCLIOptions(cliOptions: CLIOptions): Config & { configF
       launchOptions.proxy.bypass = cliOptions.proxyBypass;
   }
 
-  if (cliOptions.device && cliOptions.cdpEndpoint)
-    throw new Error('Device emulation is not supported with cdpEndpoint.');
-
   // Context options
-  const contextOptions: playwright.BrowserContextOptions = cliOptions.device ? devices[cliOptions.device] : {};
+  const contextOptions: playwright.BrowserContextOptions = {};
   if (cliOptions.storageState)
     contextOptions.storageState = cliOptions.storageState;
 
@@ -343,7 +332,6 @@ export function configFromEnv(): Config & { configFile?: string } {
     options.consoleLevel = enumParser<'error' | 'warning' | 'info' | 'debug'>('--console-level', ['error', 'warning', 'info', 'debug'], process.env.PLAYWRIGHT_MCP_CONSOLE_LEVEL);
   options.consoleExcludePatterns = commaSeparatedList(process.env.PLAYWRIGHT_MCP_CONSOLE_EXCLUDE_PATTERNS);
   options.consoleMaxEvents = numberParser(process.env.PLAYWRIGHT_MCP_CONSOLE_MAX_EVENTS);
-  options.device = envToString(process.env.PLAYWRIGHT_MCP_DEVICE);
   options.executablePath = envToString(process.env.PLAYWRIGHT_MCP_EXECUTABLE_PATH);
   options.extension = envToBoolean(process.env.PLAYWRIGHT_MCP_EXTENSION);
   options.grantPermissions = commaSeparatedList(process.env.PLAYWRIGHT_MCP_GRANT_PERMISSIONS);
@@ -480,9 +468,6 @@ export function mergeConfig(base: FullConfig, overrides: Config): FullConfig {
       ...pickDefined(overrides.browser?.contextOptions),
     },
   };
-
-  if (browser.browserName !== 'chromium' && browser.launchOptions)
-    delete browser.launchOptions.channel;
 
   return {
     ...pickDefined(base),

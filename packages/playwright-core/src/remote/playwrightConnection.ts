@@ -15,7 +15,6 @@
  */
 
 import { DispatcherConnection, PlaywrightDispatcher, RootDispatcher } from '../server';
-import { AndroidDevice } from '../server/android/android';
 import { Browser } from '../server/browser';
 import { DebugControllerDispatcher } from '../server/dispatchers/debugControllerDispatcher';
 import { startProfiling, stopProfiling } from '../server/utils/profiler';
@@ -92,13 +91,7 @@ export class PlaywrightConnection {
           this.close({ code: 1001, reason: 'Browser closed' });
         });
       }
-      if (options.preLaunchedAndroidDevice) {
-        const androidDevice = options.preLaunchedAndroidDevice;
-        androidDevice.on(AndroidDevice.Events.Close, () => {
-          // Underlying android device did close for some reason - force disconnect the client.
-          this.close({ code: 1001, reason: 'Android device disconnected' });
-        });
-      }
+      // Android device support stripped from this build.
       if (options.dispose)
         this._cleanups.push(options.dispose);
 

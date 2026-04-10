@@ -1,7 +1,0 @@
-[*]
-../../reporters
-../../runner
-../../transform
-../../util
-../../common
-../../util.ts

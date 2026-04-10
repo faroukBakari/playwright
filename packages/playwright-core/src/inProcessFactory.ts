@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-import { AndroidServerLauncherImpl } from './androidServerImpl';
 import { BrowserServerLauncherImpl } from './browserServerImpl';
 import { DispatcherConnection, PlaywrightDispatcher, RootDispatcher, createPlaywright } from './server';
 import { nodePlatform } from './server/utils/nodePlatform';
@@ -39,9 +38,6 @@ export function createInProcessPlaywright(): PlaywrightAPI {
   new PlaywrightDispatcher(rootScope, playwright);
   const playwrightAPI = clientConnection.getObjectWithKnownName('Playwright') as PlaywrightAPI;
   playwrightAPI.chromium._serverLauncher = new BrowserServerLauncherImpl('chromium');
-  playwrightAPI.firefox._serverLauncher = new BrowserServerLauncherImpl('firefox');
-  playwrightAPI.webkit._serverLauncher = new BrowserServerLauncherImpl('webkit');
-  playwrightAPI._android._serverLauncher = new AndroidServerLauncherImpl();
 
   // Switch to async dispatch after we got Playwright object.
   dispatcherConnection.onmessage = message => setImmediate(() => clientConnection.dispatch(message));

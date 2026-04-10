@@ -14,16 +14,9 @@
  * limitations under the License.
  */
 
-import { Android } from './android/android';
-import { AdbBackend } from './android/backendAdb';
-import { BidiChromium } from './bidi/bidiChromium';
-import { BidiFirefox } from './bidi/bidiFirefox';
 import { Chromium } from './chromium/chromium';
 import { DebugController } from './debugController';
-import { Electron } from './electron/electron';
-import { Firefox } from './firefox/firefox';
 import { SdkObject, createRootSdkObject } from './instrumentation';
-import { WebKit } from './webkit/webkit';
 
 import type { BrowserType } from './browserType';
 import type { Language } from '../utils';
@@ -38,10 +31,6 @@ type PlaywrightOptions = {
 
 export class Playwright extends SdkObject {
   readonly chromium: BrowserType;
-  readonly android: Android;
-  readonly electron: Electron;
-  readonly firefox: BrowserType;
-  readonly webkit: BrowserType;
   readonly options: PlaywrightOptions;
   readonly debugController: DebugController;
   private _allPages = new Set<Page>();
@@ -57,11 +46,7 @@ export class Playwright extends SdkObject {
       onPageOpen: page => this._allPages.add(page),
       onPageClose: page => this._allPages.delete(page),
     }, null);
-    this.chromium = new Chromium(this, new BidiChromium(this));
-    this.firefox = new Firefox(this, new BidiFirefox(this));
-    this.webkit = new WebKit(this);
-    this.electron = new Electron(this);
-    this.android = new Android(this, new AdbBackend());
+    this.chromium = new Chromium(this);
     this.debugController = new DebugController(this);
   }
 

@@ -40,7 +40,7 @@ export async function createBrowser(config: FullConfig, clientInfo: ClientInfo):
 async function createIsolatedBrowser(config: FullConfig, clientInfo: ClientInfo): Promise<playwright.Browser> {
   testDebug('create browser (isolated)');
   await injectCdpPort(config.browser);
-  const browserType = playwright[config.browser.browserName];
+  const browserType = playwright.chromium;
   const tracesDir = await computeTracesDir(config, clientInfo);
   return await browserType.launch({
     tracesDir,
@@ -48,8 +48,10 @@ async function createIsolatedBrowser(config: FullConfig, clientInfo: ClientInfo)
     handleSIGINT: false,
     handleSIGTERM: false,
   }).catch(error => {
-    if (error.message.includes('Executable doesn\'t exist'))
-      throwBrowserIsNotInstalledError(config);
+    if (error.message.includes('Executable doesn\'t exist')) {
+      const channel = config.browser.launchOptions?.channel ?? 'chromium';
+      throw new Error(`Browser "${channel}" is not installed. Run \`npx @playwright/mcp install-browser ${channel}\` to install`);
+    }
     throw error;
   });
 }
@@ -65,10 +67,10 @@ async function createCDPBrowser(config: FullConfig): Promise<playwright.Browser>
 async function createRemoteBrowser(config: FullConfig): Promise<playwright.Browser> {
   testDebug('create browser (remote)');
   const url = new URL(config.browser.remoteEndpoint!);
-  url.searchParams.set('browser', config.browser.browserName);
+  url.searchParams.set('browser', 'chromium');
   if (config.browser.launchOptions)
     url.searchParams.set('launch-options', JSON.stringify(config.browser.launchOptions));
-  return playwright[config.browser.browserName].connect(String(url));
+  return playwright.chromium.connect(String(url));
 }
 
 async function createPersistentBrowser(config: FullConfig, clientInfo: ClientInfo): Promise<playwright.Browser> {
@@ -80,7 +82,7 @@ async function createPersistentBrowser(config: FullConfig, clientInfo: ClientInf
   if (await isProfileLocked5Times(userDataDir))
     throw new Error(`Browser is already in use for ${userDataDir}, use --isolated to run multiple instances of the same browser`);
 
-  const browserType = playwright[config.browser.browserName];
+  const browserType = playwright.chromium;
   const launchOptions: LaunchOptions & BrowserContextOptions = {
     tracesDir,
     ...config.browser.launchOptions,
@@ -96,8 +98,10 @@ async function createPersistentBrowser(config: FullConfig, clientInfo: ClientInf
     const browserContext = await browserType.launchPersistentContext(userDataDir, launchOptions);
     return browserContext.browser()!;
   } catch (error: any) {
-    if (error.message.includes('Executable doesn\'t exist'))
-      throwBrowserIsNotInstalledError(config);
+    if (error.message.includes('Executable doesn\'t exist')) {
+      const channel = config.browser.launchOptions?.channel ?? 'chromium';
+      throw new Error(`Browser "${channel}" is not installed. Run \`npx @playwright/mcp install-browser ${channel}\` to install`);
+    }
     if (error.message.includes('cannot open shared object file: No such file or directory')) {
       const browserName = launchOptions.channel ?? config.browser.browserName;
       throw new Error(`Missing system dependencies required to run browser ${browserName}. Install them with: sudo npx playwright install-deps ${browserName}`);
@@ -175,12 +179,4 @@ export function isProfileLocked(userDataDir: string): boolean {
   } catch {
     return false;
   }
-}
-
-function throwBrowserIsNotInstalledError(config: FullConfig): never {
-  const channel = config.browser.launchOptions?.channel ?? config.browser.browserName;
-  if (config.skillMode)
-    throw new Error(`Browser "${channel}" is not installed. Run \`playwright-cli install-browser ${channel}\` to install`);
-  else
-    throw new Error(`Browser "${channel}" is not installed. Run \`npx @playwright/mcp install-browser ${channel}\` to install`);
 }

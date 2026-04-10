@@ -32,7 +32,6 @@ import { EventMap, SdkObject } from './instrumentation';
 import * as network from './network';
 import { InitScript } from './page';
 import { Page, PageBinding } from './page';
-import { RecorderApp } from './recorder/recorderApp';
 import { Selectors } from './selectors';
 import { Tracing } from './trace/recorder/tracing';
 import { DevToolsController } from './devtoolsController';
@@ -152,18 +151,7 @@ export abstract class BrowserContext<EM extends EventMap = EventMap> extends Sdk
     // Debugger will pause execution upon page.pause in headed mode.
     this._debugger = new Debugger(this);
 
-    // When PWDEBUG=1, show inspector for each context.
-    if (debugMode() === 'inspector')
-      await RecorderApp.show(this, { pauseOnNextStatement: true });
-
-    // When paused, show inspector.
-    if (this._debugger.isPaused())
-      RecorderApp.showInspectorNoReply(this);
-
-    this._debugger.on(Debugger.Events.PausedStateChanged, () => {
-      if (this._debugger.isPaused())
-        RecorderApp.showInspectorNoReply(this);
-    });
+    // Recorder/inspector UI stripped from this build.
 
     if (debugMode() === 'console')
       await this.exposeConsoleApi();

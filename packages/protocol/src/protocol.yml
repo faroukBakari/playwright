@@ -763,10 +763,10 @@ Playwright:
 
   initializer:
     chromium: BrowserType
-    firefox: BrowserType
-    webkit: BrowserType
-    android: Android
-    electron: Electron
+    firefox: BrowserType?
+    webkit: BrowserType?
+    android: Android?
+    electron: Electron?
     utils: LocalUtils?
     # Only present when connecting remotely via BrowserType.connect() method.
     preLaunchedBrowser: Browser?

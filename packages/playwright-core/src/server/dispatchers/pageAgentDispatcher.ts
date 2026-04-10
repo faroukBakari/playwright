@@ -15,108 +15,40 @@
  */
 
 import { Dispatcher } from './dispatcher';
-import { pageAgentExpect, pageAgentExtract, pageAgentPerform } from '../agent/pageAgent';
 import { SdkObject } from '../instrumentation';
-import { Context } from '../agent/context';
 
 import type { PageDispatcher } from './pageDispatcher';
 import type { DispatcherScope } from './dispatcher';
 import type * as channels from '@protocol/channels';
 import type { Progress } from '@protocol/progress';
-import type { Page } from '../page';
-import type * as loopTypes from '@lowire/loop';
 
+// Agent functionality stripped from this build.
 export class PageAgentDispatcher extends Dispatcher<SdkObject, channels.PageAgentChannel, DispatcherScope> implements channels.PageAgentChannel {
   _type_PageAgent = true;
   _type_EventTarget = true;
-  private _page: Page;
-  private _usage: Usage = { turns: 0, inputTokens: 0, outputTokens: 0 };
-  private _context: Context;
 
-  constructor(scope: PageDispatcher, options: channels.PageAgentParams) {
+  constructor(scope: PageDispatcher, _options: channels.PageAgentParams) {
     super(scope, new SdkObject(scope._object, 'pageAgent'), 'PageAgent', { page: scope });
-    this._page = scope._object;
-    this._context = new Context(this._page, options, this._eventSupport());
   }
 
-  async perform(params: channels.PageAgentPerformParams, progress: Progress): Promise<channels.PageAgentPerformResult> {
-    try {
-      await pageAgentPerform(progress, this._context, params.task, params);
-    } finally {
-      this._context.pushHistory({ type: 'perform', description: params.task });
-    }
-    return { usage: this._usage };
+  async perform(_params: channels.PageAgentPerformParams, _progress: Progress): Promise<channels.PageAgentPerformResult> {
+    throw new Error('Agent not available — stripped from this build');
   }
 
-  async expect(params: channels.PageAgentExpectParams, progress: Progress): Promise<channels.PageAgentExpectResult> {
-    try {
-      await pageAgentExpect(progress, this._context, params.expectation, params);
-    } finally {
-      this._context.pushHistory({ type: 'expect', description: params.expectation });
-    }
-    return { usage: this._usage };
+  async expect(_params: channels.PageAgentExpectParams, _progress: Progress): Promise<channels.PageAgentExpectResult> {
+    throw new Error('Agent not available — stripped from this build');
   }
 
-  async extract(params: channels.PageAgentExtractParams, progress: Progress): Promise<channels.PageAgentExtractResult> {
-    const result = await pageAgentExtract(progress, this._context, params.query, params.schema, params);
-    return { result, usage: this._usage };
+  async extract(_params: channels.PageAgentExtractParams, _progress: Progress): Promise<channels.PageAgentExtractResult> {
+    throw new Error('Agent not available — stripped from this build');
   }
 
-  async usage(params: channels.PageAgentUsageParams, progress: Progress): Promise<channels.PageAgentUsageResult> {
-    return { usage: this._usage };
+  async usage(_params: channels.PageAgentUsageParams, _progress: Progress): Promise<channels.PageAgentUsageResult> {
+    return { usage: { turns: 0, inputTokens: 0, outputTokens: 0 } };
   }
 
-  async dispose(params: channels.PageAgentDisposeParams, progress: Progress): Promise<void> {
+  async dispose(_params: channels.PageAgentDisposeParams, progress: Progress): Promise<void> {
     progress.metadata.potentiallyClosesScope = true;
-    void this.stopPendingOperations(new Error('The agent is disposed'));
     this._dispose();
   }
-
-  private _eventSupport(): loopTypes.LoopEvents {
-    const self = this;
-    return {
-      onBeforeTurn(params: { conversation: loopTypes.Conversation }) {
-        if (self._disposed)
-          return;
-        const userMessage = params.conversation.messages.find(m => m.role === 'user');
-        self._dispatchEvent('turn', { role: 'user', message: userMessage?.content ?? '' });
-      },
-
-      onAfterTurn(params: { assistantMessage: loopTypes.AssistantMessage, totalUsage: loopTypes.Usage }) {
-        if (self._disposed)
-          return;
-        const usage = { inputTokens: params.totalUsage.input, outputTokens: params.totalUsage.output };
-        const intent = params.assistantMessage.content.filter(c => c.type === 'text').map(c => c.text).join('\n');
-        self._dispatchEvent('turn', { role: 'assistant', message: intent, usage });
-        if (!params.assistantMessage.content.filter(c => c.type === 'tool_call').length)
-          self._dispatchEvent('turn', { role: 'assistant', message: `no tool calls`, usage });
-        self._usage = { turns: self._usage.turns + 1, inputTokens: self._usage.inputTokens + usage.inputTokens, outputTokens: self._usage.outputTokens + usage.outputTokens };
-      },
-
-      onBeforeToolCall(params: { toolCall: loopTypes.ToolCallContentPart }) {
-        if (self._disposed)
-          return;
-        self._dispatchEvent('turn', { role: 'assistant', message: `call tool "${params.toolCall.name}"` });
-      },
-
-      onAfterToolCall(params: { toolCall: loopTypes.ToolCallContentPart, result: loopTypes.ToolResult }) {
-        if (self._disposed)
-          return;
-        const suffix = params.toolCall.result?.isError ? 'failed' : 'succeeded';
-        self._dispatchEvent('turn', { role: 'user', message: `tool "${params.toolCall.name}" ${suffix}` });
-      },
-
-      onToolCallError(params: { toolCall: loopTypes.ToolCallContentPart, error: Error }) {
-        if (self._disposed)
-          return;
-        self._dispatchEvent('turn', { role: 'user', message: `tool "${params.toolCall.name}" failed: ${params.error.message}` });
-      }
-    };
-  }
 }
-
-type Usage = {
-  turns: number,
-  inputTokens: number,
-  outputTokens: number,
-};
