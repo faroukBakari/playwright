@@ -16,7 +16,7 @@
 
 /* eslint-disable import/order */
 
-import colorsLibrary from 'colors/safe';
+import colorsLibrary from 'colors/safe.js';
 export const colors = colorsLibrary;
 
 import debugLibrary from 'debug';
@@ -38,7 +38,8 @@ export { HttpsProxyAgent } from 'https-proxy-agent';
 import jpegLibrary from 'jpeg-js';
 export const jpegjs = jpegLibrary;
 
-const lockfileLibrary = require('./third_party/lockfile');
+// @ts-expect-error no types for vendored lockfile
+import lockfileLibrary from './third_party/lockfile.js';
 export const lockfile = lockfileLibrary;
 
 import mimeLibrary from 'mime';
