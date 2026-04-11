@@ -26,37 +26,19 @@ const builtins = new Set(Module.builtinModules);
 const packagesDir = path.resolve(path.join(__dirname, '..', 'packages'));
 
 const packages = new Map();
-packages.set('web', packagesDir + '/web/src/');
 packages.set('injected', packagesDir + '/injected/src/');
 packages.set('isomorphic', packagesDir + '/playwright-core/src/utils/isomorphic/');
-packages.set('testIsomorphic', packagesDir + '/playwright/src/isomorphic/');
 
 const peerDependencies = ['electron', 'react', 'react-dom', 'react-dom/client', '@zip.js/zip.js', 'zod', 'zod/v3'];
 
 const depsCache = {};
 
 async function checkDeps() {
-  await innerCheckDeps(path.join(packagesDir, 'html-reporter'));
-  await innerCheckDeps(path.join(packagesDir, 'playwright-ct-core'));
   await innerCheckDeps(path.join(packagesDir, 'protocol'));
-  await innerCheckDeps(path.join(packagesDir, 'recorder'));
-  await innerCheckDeps(path.join(packagesDir, 'trace-viewer'));
   await innerCheckDeps(path.join(packagesDir, 'trace'));
-  await innerCheckDeps(path.join(packagesDir, 'web'));
   await innerCheckDeps(path.join(packagesDir, 'injected'));
-
-  const corePackageJson = await innerCheckDeps(path.join(packagesDir, 'playwright-core'));
-  const playwrightPackageJson = await innerCheckDeps(path.join(packagesDir, 'playwright'));
-
-  let hasVersionMismatch = false;
-  for (const [key, value] of Object.entries(corePackageJson.dependencies || {})) {
-    const value2 = playwrightPackageJson.dependencies[key];
-    if (value2 && value2 !== value) {
-      hasVersionMismatch = true;
-      console.log(`Dependency version mismatch ${key}: ${value} != ${value2}`);
-    }
-  }
-  process.exit(hasVersionMismatch ? 1 : 0);
+  await innerCheckDeps(path.join(packagesDir, 'playwright-core'));
+  process.exit(0);
 }
 
 async function innerCheckDeps(root) {

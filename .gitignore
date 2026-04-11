@@ -11,7 +11,6 @@ node_modules/
 .idea
 yarn.lock
 /packages/playwright-core/src/generated
-/packages/playwright-ct-core/src/generated
 packages/*/lib/
 # Dev-mode symlinks: src/*BundleImpl → bundles/*/out (tsx needs these)
 /packages/playwright-core/src/utilsBundleImpl
@@ -31,8 +30,6 @@ test-results
 /demo/
 /packages/*/LICENSE
 /packages/*/NOTICE
-/packages/playwright/README.md
-/packages/playwright-test/README.md
 /packages/playwright-core/api.json
 /packages/playwright-cli
 .env

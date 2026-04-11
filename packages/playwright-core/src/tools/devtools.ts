@@ -19,7 +19,6 @@ import { defineTool } from './tool';
 
 const devtoolsConnect = defineTool({
   capability: 'devtools',
-  skillOnly: true,
 
   schema: {
     name: 'browser_devtools_start',

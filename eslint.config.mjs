@@ -50,12 +50,6 @@ const ignores = [
   "packages/playwright-core/src/generated/*",
   "packages/playwright-core/src/third_party/",
   "packages/playwright-core/types/*",
-  "packages/playwright-ct-core/src/generated/*",
-  "packages/playwright/bundles/expect/third_party/",
-  "packages/html-reporter/bundle.ts",
-  "packages/html-reporter/playwright.config.ts",
-  "packages/html-reporter/playwright/*",
-  "packages/html-reporter/vite.config.ts",
   "test-results/",
   "tests/assets/",
   "tests/components/",
@@ -278,16 +272,7 @@ const compat = new FlatCompat({
 const reactBaseConfig = fixupConfigRules(
   compat.extends("plugin:react/recommended", "plugin:react-hooks/recommended")
 );
-const reactFiles = [
-  `packages/html-reporter/src/**/*.ts`,
-  `packages/html-reporter/src/**/*.tsx`,
-  `packages/recorder/src/**/*.ts`,
-  `packages/recorder/src/**/*.tsx`,
-  `packages/trace-viewer/src/**/*.ts`,
-  `packages/trace-viewer/src/**/*.tsx`,
-  `packages/web/src/**/*.ts`,
-  `packages/web/src/**/*.tsx`,
-];
+const reactFiles = [];
 
 function reactPackageSection(packageName) {
   return {
@@ -347,12 +332,6 @@ export default [
     files: ["packages/**/*.ts"],
     rules: {
       ...importOrderRules,
-    },
-  },
-  {
-    files: ["packages/playwright/**/*.ts"],
-    rules: {
-      ...noFloatingPromisesRules,
     },
   },
   {
@@ -417,7 +396,4 @@ export default [
     ...config,
     files: reactFiles,
   })),
-  reactPackageSection("html-reporter"),
-  reactPackageSection("recorder"),
-  reactPackageSection("trace-viewer"),
 ];
