@@ -16,10 +16,7 @@
   "license": "Apache-2.0",
   "exports": {
     ".": {
-      "types": "./index.d.ts",
-      "import": "./index.mjs",
-      "require": "./index.js",
-      "default": "./index.js"
+      "types": "./types/types.d.ts"
     },
     "./package.json": "./package.json",
     "./src/outofprocess": "./src/outofprocess.ts",
@@ -40,9 +37,6 @@
     "./src/utils": "./src/utils.ts",
     "./src/utilsBundle": "./src/utilsBundle.ts",
     "./src/zipBundle": "./src/zipBundle.ts"
-  },
-  "bin": {
-    "playwright-core": "cli.js"
   },
   "types": "types/types.d.ts"
 }
