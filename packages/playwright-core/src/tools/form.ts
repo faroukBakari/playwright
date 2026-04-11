@@ -62,9 +62,13 @@ const fillForm = defineTabTool({
           const secret = tab.context.lookupSecret(field.value);
           await locator.fill(secret.value, tab.actionTimeoutOptions);
           response.addCode(`${locatorSource}.fill(${secret.code});`);
-        } else if (field.type === 'checkbox' || field.type === 'radio') {
+        } else if (field.type === 'checkbox') {
           await locator.setChecked(field.value === 'true', tab.actionTimeoutOptions);
           response.addCode(`${locatorSource}.setChecked(${field.value});`);
+        } else if (field.type === 'radio') {
+          // Radio buttons cannot be unchecked via setChecked — use click() to select the target option.
+          await locator.click(tab.actionTimeoutOptions);
+          response.addCode(`${locatorSource}.click();`);
         } else if (field.type === 'combobox') {
           await locator.selectOption({ label: field.value }, tab.actionTimeoutOptions);
           response.addCode(`${locatorSource}.selectOption(${escapeWithQuotes(field.value)});`);
