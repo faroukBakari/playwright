@@ -159,6 +159,12 @@ export function decorateMCPCommand(command: Command, version: string) {
             },
             disposed: async backend => {
               activeSessionCount--;
+              // Signal relay to skip per-session grace for this session — the MCP
+              // transport is permanently gone (SESSION_IDLE_TTL or explicit close),
+              // so the relay should not hold a 5-minute grace window for a session
+              // that will never reconnect.
+              const sessionId = (backend as SharedBackendProxy).sessionId;
+              relay.markForImmediateCleanup(sessionId);
               // Close this session's browser context and relay WS connection.
               // Without this, the relay slot stays occupied by a zombie WS after
               // the MCP session is gone, eventually exhausting maxConcurrentClients.

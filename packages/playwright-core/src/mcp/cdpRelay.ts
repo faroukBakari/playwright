@@ -87,6 +87,10 @@ export class CDPRelayServer {
   // CDP command router (extracted)
   private _commandRouter!: CDPCommandRouter;
 
+  // Sessions marked for immediate cleanup — skip per-session grace on WS close.
+  // Set by the server layer when SESSION_IDLE_TTL fires (MCP session permanently disposed).
+  private _immediateCleanupSessions = new Set<string>();
+
   constructor(server: http.Server, _browserChannel: string, options?: CDPRelayOptions) {
     this._wsHost = addressToString(server.address(), { protocol: 'ws' });
     this._extensionCommandTimeout = options?.extensionCommandTimeout ?? DEFAULT_EXTENSION_COMMAND_TIMEOUT;
@@ -348,8 +352,14 @@ export class CDPRelayServer {
       this._clients.delete(sessionId);
       serverLog('session', `slot freed: sessionId=${sessionId} clients=${this._clients.size}/${this._maxConcurrentClients}`);
 
-      // Try per-session grace (preserves tab binding)
-      const enteredGrace = this._sessionGrace.enter(
+      // Check if server layer marked this session for immediate cleanup
+      // (SESSION_IDLE_TTL fired — MCP session permanently disposed, no reconnection possible)
+      const skipGrace = this._immediateCleanupSessions.has(sessionId);
+      if (skipGrace)
+        this._immediateCleanupSessions.delete(sessionId);
+
+      // Try per-session grace (preserves tab binding) — unless marked for immediate cleanup
+      const enteredGrace = skipGrace ? false : this._sessionGrace.enter(
         sessionId,
         session.cdpSessionId,
         session.targetInfo,
@@ -372,7 +382,7 @@ export class CDPRelayServer {
         }
       );
 
-      serverLog('session', `grace: sessionId=${sessionId} entered=${enteredGrace} cdpSessionId=${session.cdpSessionId ?? 'null'} tabId=${session.tabId ?? 'null'}`);
+      serverLog('session', `grace: sessionId=${sessionId} entered=${enteredGrace}${skipGrace ? ' (skipped: idle disposal)' : ''} cdpSessionId=${session.cdpSessionId ?? 'null'} tabId=${session.tabId ?? 'null'}`);
 
       // If session had no tab binding (cdpSessionId null), do immediate cleanup as before
       if (!enteredGrace && session.cdpSessionId != null && this._extensionConnection) {
@@ -668,6 +678,26 @@ export class CDPRelayServer {
     if (!this._extensionConnection)
       throw new Error('Extension not connected');
     return await (this._extensionConnection as any).send(method, params, { timeout: options?.timeout ?? 10000 });
+  }
+
+  /**
+   * Mark a session for immediate cleanup — skip per-session grace on WS close.
+   * Called by the server layer when SESSION_IDLE_TTL fires (MCP session permanently
+   * disposed). If the session is already in grace, cancel it immediately and detach.
+   */
+  markForImmediateCleanup(sessionId: string): void {
+    // If already in per-session grace, cancel and detach immediately
+    const graced = this._sessionGrace.cancel(sessionId);
+    if (graced) {
+      serverLog('session', `immediate cleanup (already graced): sessionId=${sessionId} tabId=${graced.tabId ?? 'null'}`);
+      if (graced.tabId != null && this._extensionConnection)
+        this._extensionConnection.send('detachTab', { sessionId }).catch(e => serverLog('warn', `detachTab failed for immediate cleanup ${sessionId}`, e));
+      // Do NOT move to dormant — MCP session is permanently gone
+      return;
+    }
+    // Otherwise, mark for the close handler to skip grace
+    this._immediateCleanupSessions.add(sessionId);
+    serverLog('session', `marked for immediate cleanup: sessionId=${sessionId}`);
   }
 
   /** Active sessions snapshot for diagnostics. */

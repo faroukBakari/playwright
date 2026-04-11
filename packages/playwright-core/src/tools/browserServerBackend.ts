@@ -48,6 +48,10 @@ export class SharedBackendProxy implements ServerBackend {
   ) {
   }
 
+  get sessionId(): string {
+    return this._sessionId;
+  }
+
   async initialize(clientInfo: ClientInfo): Promise<void> {
     if (!this._backend.initialized)
       await this._backend.initialize(clientInfo);
