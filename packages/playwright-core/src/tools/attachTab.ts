@@ -66,7 +66,6 @@ const attachTab = defineTool({
     if (result.bumpedSessionId)
       lines.push(`Previous session ${result.bumpedSessionId} was detached.`);
 
-    response.setIncludeSnapshot();
     response.addTextResult(lines.join('\n'));
   },
 });

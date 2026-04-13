@@ -335,6 +335,22 @@ export class CDPRelayServer {
     clientWs.on('message', async data => {
       try {
         const message = JSON.parse(data.toString());
+
+        // Intercept relay-level signals before CDP command routing.
+        // contextRecoveryComplete: server (CRPage) notifies relay that context has been
+        // recovered — relay translates sessionId → tabId and notifies the extension.
+        if (message.method === 'contextRecoveryComplete') {
+          const recoveredSessionId: string = message.params?.sessionId ?? sessionId;
+          const session = this._clients.get(recoveredSessionId);
+          if (!session || session.tabId == null) {
+            serverLog('warn', `contextRecoveryComplete: no active session or tabId for sessionId=${recoveredSessionId}, dropping`);
+            return;
+          }
+          serverLog('lifecycle', `contextRecoveryComplete: sessionId=${recoveredSessionId} → tabId=${session.tabId}`);
+          this._extensionConnection?.sendRaw({ method: 'contextRecoveryComplete', params: { tabId: session.tabId } });
+          return;
+        }
+
         await this._commandRouter.handleMessage(message, sessionId);
       } catch (error: any) {
         debugLogger(`Error while handling Playwright message\n${data.toString()}\n`, error);
@@ -579,6 +595,23 @@ export class CDPRelayServer {
           this._stateMachine.bufferEvent(JSON.stringify(message));
         } else if (targetSession) {
           this._sendToClient(targetSession.ws, message);
+        }
+        break;
+      }
+      case 'debuggerReattached': {
+        const reattachParams = params as ExtensionEvents['debuggerReattached']['params'];
+        const reattachSession = this._clients.get(reattachParams.sessionId);
+        if (reattachSession) {
+          serverLog('lifecycle', `debuggerReattached: sessionId=${reattachParams.sessionId} tabId=${reattachParams.tabId} cdpSessionId=${reattachSession.cdpSessionId ?? 'null'}`);
+          // Forward to Playwright WS client as a custom event on the CDP session
+          // so CRPage's FrameSession can listen for it and reinitialize contexts.
+          this._sendToClient(reattachSession.ws, {
+            sessionId: reattachSession.cdpSessionId ?? undefined,
+            method: 'debuggerReattached',
+            params: { tabId: reattachParams.tabId, sessionId: reattachParams.sessionId },
+          });
+        } else {
+          serverLog('warn', `debuggerReattached: no active session for sessionId=${reattachParams.sessionId}`);
         }
         break;
       }

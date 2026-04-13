@@ -17,6 +17,7 @@
 
 import { assert } from '../../utils/isomorphic/assert';
 import { eventsHelper } from '../utils/eventsHelper';
+import { debugLogger } from '../utils/debugLogger';
 import { rewriteErrorMessage } from '../../utils/isomorphic/stackTrace';
 import * as dialog from '../dialog';
 import * as dom from '../dom';
@@ -435,6 +436,14 @@ class FrameSession {
       eventsHelper.addEventListener(this._client, 'Page.screencastFrame', event => this._onScreencastFrame(event)),
       eventsHelper.addEventListener(this._client, 'Page.windowOpen', event => this._onWindowOpen(event)),
     ]);
+    // Listen for debugger reattach signal from the CDP relay (extension bridge).
+    // Only the main frame session handles recovery — child sessions (iframes) share
+    // the same debugger connection and their contexts are republished along with main.
+    if (this._isMainFrame()) {
+      this._eventListeners.push(
+        eventsHelper.addEventListener(this._client, 'debuggerReattached' as any, (event: any) => this._reinitializeAfterReattach(event))
+      );
+    }
   }
 
   async _initialize(hasUIWindow: boolean) {
@@ -554,6 +563,86 @@ class FrameSession {
     this._crPage._networkManager.removeSession(this._client);
     this._crPage._sessions.delete(this._targetId);
     this._client.dispose();
+  }
+
+  /**
+   * Reinitialize execution contexts after a debugger detach/reattach cycle.
+   *
+   * When Chrome detaches the debugger (e.g., security software injecting content scripts
+   * triggers chrome.debugger.onDetach), all execution contexts are destroyed. After the
+   * extension reattaches, the CDP transport is restored but contexts are stale. This method:
+   *
+   * 1. Clears stale context entries from the local map
+   * 2. Sends Runtime.enable — Chrome republishes executionContextCreated events
+   * 3. Waits for at least the main frame context (via frame._mainContext())
+   * 4. Sends Page.createIsolatedWorld to recreate the utility world
+   * 5. Waits for the utility context (via frame._utilityContext())
+   * 6. Sends contextRecoveryComplete back through the transport
+   */
+  async _reinitializeAfterReattach(event: { tabId: number; sessionId: string }): Promise<void> {
+    const recoveryTimeoutMs = 10_000;
+    const logPrefix = `[context-recovery sessionId=${event.sessionId}]`;
+    debugLogger.log('api', `${logPrefix} started — clearing ${this._contextIdToContext.size} stale contexts`);
+
+    // Step 1: Clear stale execution context entries.
+    // The old context objects hold invalidated remote object IDs that will cause
+    // "Could not find object with given id" errors on any subsequent evaluation.
+    this._onExecutionContextsCleared();
+
+    // Step 2: Send Runtime.enable — Chrome will republish all active execution contexts.
+    // The existing _onExecutionContextCreated handler rebuilds the context map and
+    // resolves frame context promises automatically.
+    try {
+      await this._client.send('Runtime.enable', {});
+      debugLogger.log('api', `${logPrefix} Runtime.enable sent`);
+    } catch (e: any) {
+      debugLogger.log('error', `${logPrefix} Runtime.enable failed: ${e.message} — sending degraded completion`);
+      this._client._sendNotification('contextRecoveryComplete', { sessionId: event.sessionId });
+      return;
+    }
+
+    // Step 3: Wait for main frame context to arrive.
+    // frame._mainContext() returns a promise that resolves when _onExecutionContextCreated
+    // processes the main-world context from Chrome's Runtime.enable response.
+    const mainFrame = this._page.mainFrame();
+    try {
+      await Promise.race([
+        mainFrame._mainContext(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout waiting for main context')), recoveryTimeoutMs)),
+      ]);
+      debugLogger.log('api', `${logPrefix} main context ready`);
+    } catch (e: any) {
+      debugLogger.log('error', `${logPrefix} main context wait failed: ${e.message}`);
+      // Continue — send completion even on timeout to unblock the extension.
+    }
+
+    // Step 4: Recreate the utility (isolated) world.
+    // The worldName is already stored on the CRPage — use it directly.
+    try {
+      await this._client._sendMayFail('Page.createIsolatedWorld', {
+        frameId: mainFrame._id,
+        grantUniveralAccess: true,
+        worldName: this._crPage.utilityWorldName,
+      });
+      debugLogger.log('api', `${logPrefix} Page.createIsolatedWorld sent for worldName=${this._crPage.utilityWorldName}`);
+    } catch (e: any) {
+      debugLogger.log('error', `${logPrefix} Page.createIsolatedWorld failed: ${e.message}`);
+    }
+
+    // Step 5: Wait for utility context.
+    try {
+      await Promise.race([
+        mainFrame._utilityContext(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout waiting for utility context')), recoveryTimeoutMs)),
+      ]);
+      debugLogger.log('api', `${logPrefix} utility context ready`);
+    } catch (e: any) {
+      debugLogger.log('error', `${logPrefix} utility context wait failed: ${e.message}`);
+    }
+
+    // Step 6: Notify relay that context recovery is complete.
+    debugLogger.log('api', `${logPrefix} complete — sending contextRecoveryComplete`);
+    this._client._sendNotification('contextRecoveryComplete', { sessionId: event.sessionId });
   }
 
   async _navigate(frame: frames.Frame, url: string, referrer: string | undefined): Promise<frames.GotoResult> {

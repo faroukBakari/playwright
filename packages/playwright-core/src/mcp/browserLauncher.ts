@@ -17,7 +17,6 @@
 import { spawn } from 'child_process';
 import fs from 'fs';
 
-import * as protocol from './protocol';
 import { serverLog } from './log';
 
 /**
@@ -40,7 +39,6 @@ export function launchBrowserToExtension(extensionEndpoint: string, forceNewTab:
     version: require('../../package.json').version,
   };
   url.searchParams.set('client', JSON.stringify(client));
-  url.searchParams.set('protocolVersion', process.env.PWMCP_TEST_PROTOCOL_VERSION ?? protocol.VERSION.toString());
   if (forceNewTab)
     url.searchParams.set('newTab', 'true');
   const token = process.env.PLAYWRIGHT_MCP_EXTENSION_TOKEN;

@@ -73,6 +73,18 @@ export class CRConnection extends SdkObject {
     return id;
   }
 
+  /**
+   * Send a one-way notification (no id, no response expected) via the transport.
+   * Used for relay-level signals like contextRecoveryComplete that bypass CDP.
+   */
+  _sendNotification(method: string, params: any): void {
+    if (this._closed)
+      return;
+    const message = { method, params };
+    this._protocolLogger('send', message);
+    this._transport.send(message);
+  }
+
   async _onMessage(message: ProtocolResponse) {
     this._protocolLogger('receive', message);
     if (message.id === kBrowserCloseMessageId)
@@ -146,6 +158,14 @@ export class CRSession extends SdkObject<Protocol.EventMap & ConnectionEventMap>
 
   _sendMayFail<T extends keyof Protocol.CommandParameters>(method: T, params?: Protocol.CommandParameters[T]): Promise<Protocol.CommandReturnValues[T] | void> {
     return this.send(method, params).catch((error: ProtocolError) => debugLogger.log('error', error));
+  }
+
+  /**
+   * Send a one-way notification (no id, no response expected) via the connection transport.
+   * Used for relay-level signals like contextRecoveryComplete that bypass CDP.
+   */
+  _sendNotification(method: string, params: any): void {
+    this._connection._sendNotification(method, params);
   }
 
   _onMessage(object: ProtocolResponse) {

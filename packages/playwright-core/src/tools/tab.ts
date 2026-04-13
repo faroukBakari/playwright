@@ -100,7 +100,18 @@ export class Tab extends EventEmitter<TabEventsInterface> {
       }),
     ];
     (page as any)[tabSymbol] = this;
-    this._initializedPromise = this._initialize();
+    const initBudget = Math.min(context.remainingBudget(), 10_000);
+    this._initializedPromise = initBudget === Infinity
+      ? this._initialize()
+      : Promise.race([
+          this._initialize(),
+          new Promise<void>((_, reject) =>
+            setTimeout(() => reject(new Error('Tab initialization timed out')), initBudget)
+          ),
+        ]).catch(e => {
+          debug('pw:tools:error')('Tab init failed:', e.message);
+          // Swallow — init failure is non-fatal, snapshot will degrade gracefully
+        });
     this._actionTimeoutCeiling = context.config.timeouts?.playwright?.action;
     this._navigationTimeoutCeiling = context.config.timeouts?.playwright?.navigation;
     this._expectTimeoutCeiling = context.config.timeouts?.playwright?.expect;

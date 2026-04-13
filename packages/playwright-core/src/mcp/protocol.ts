@@ -14,10 +14,6 @@
  * limitations under the License.
  */
 
-// Whenever the commands/events change, the version must be updated. The latest
-// extension version should be compatible with the old MCP clients.
-export const VERSION = 5;
-
 export type ExtensionCommand = {
   'attachToTab': {
     params: { tabId?: number; sessionId?: string };
@@ -55,5 +51,8 @@ export type ExtensionEvents = {
   };
   'tabClosed': {
     params: { sessionId: string; tabId: number };
+  };
+  'debuggerReattached': {
+    params: { tabId: number; sessionId: string };
   };
 };
