@@ -204,7 +204,12 @@ export class CRSession extends SdkObject<Protocol.EventMap & ConnectionEventMap>
 
   dispose() {
     this._closed = true;
-    this._connection._sessions.delete(this._sessionId);
+    // Only remove from the sessions map if this is still the active entry.
+    // When a session reconnects with the same MCP sessionId (e.g. after a
+    // relay bump round-trip), createChildSession overwrites the map entry.
+    // The old CRSession's dispose must not delete the replacement.
+    if (this._connection._sessions.get(this._sessionId) === this)
+      this._connection._sessions.delete(this._sessionId);
     for (const callback of this._callbacks.values()) {
       callback.error.setMessage(`Internal server error, session closed.`);
       callback.error.type = this._crashed ? 'crashed' : 'closed';
