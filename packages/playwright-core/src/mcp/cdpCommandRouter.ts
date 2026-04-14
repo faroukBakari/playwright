@@ -22,7 +22,6 @@
 
 import { debug } from '../utilsBundle';
 import { serverLog } from './log';
-import type { WebSocket } from '../utilsBundle';
 import type { ExtensionConnection } from './extensionConnection';
 import type { ClientSession, CDPCommand, CDPResponse, RelayState } from './cdpRelayTypes';
 
@@ -34,7 +33,7 @@ export interface CommandRouterDeps {
   getState(): RelayState;
   getExtensionCommandTimeout(): number;
   getDownloadsPath(): string | undefined;
-  sendToClient(targetWs: WebSocket, message: CDPResponse): void;
+  sendToClient(session: ClientSession, message: CDPResponse): void;
   bufferEvent(data: string): void;
 }
 
@@ -53,7 +52,7 @@ export class CDPCommandRouter {
     const { id, sessionId: cdpSessionId, method, params } = message;
     // Fail-fast: no extension to forward to during extension grace
     if (this._deps.getState() === 'extensionGrace') {
-      this._deps.sendToClient(session.ws, {
+      this._deps.sendToClient(session, {
         id,
         sessionId: cdpSessionId,
         error: { code: -32000, message: 'Extension reconnecting' }
@@ -62,10 +61,10 @@ export class CDPCommandRouter {
     }
     try {
       const result = await this._handleCDPCommand(method, params, cdpSessionId, sessionId);
-      this._deps.sendToClient(session.ws, { id, sessionId: cdpSessionId, result });
+      this._deps.sendToClient(session, { id, sessionId: cdpSessionId, result });
     } catch (e) {
       debugLogger('Error in the extension:', e);
-      this._deps.sendToClient(session.ws, {
+      this._deps.sendToClient(session, {
         id,
         sessionId: cdpSessionId,
         error: { message: (e as Error).message }
@@ -104,7 +103,7 @@ export class CDPCommandRouter {
           if (session?.targetInfo && session.tabId != null) {
             debugLogger('Returning cached target info for graced session');
             session.cdpSessionId = session.cdpSessionId ?? `session-${sessionId}`;
-            this._deps.sendToClient(session.ws, {
+            this._deps.sendToClient(session, {
               method: 'Target.attachedToTarget',
               params: {
                 sessionId: session.cdpSessionId,
@@ -166,11 +165,11 @@ export class CDPCommandRouter {
    * that previously had none (deferred tab creation).
    */
   sendTabAttached(session: ClientSession): void {
-    if (!session.ws || !session.targetInfo)
+    if (!session.targetInfo)
       return;
     session.cdpSessionId = session.cdpSessionId ?? `session-${session.sessionId}`;
     debugLogger(`Sending Target.attachedToTarget for session ${session.sessionId} (tab ${session.tabId})`);
-    this._deps.sendToClient(session.ws, {
+    this._deps.sendToClient(session, {
       method: 'Target.attachedToTarget',
       params: {
         sessionId: session.cdpSessionId,
@@ -199,7 +198,7 @@ export class CDPCommandRouter {
     const bumpedSession = this._deps.getClient(bumpedSessionId);
     if (bumpedSession) {
       serverLog('session', `bumped: ${bumpedSessionId} displaced by ${newSessionId} on tab ${tabId}`);
-      this._deps.sendToClient(bumpedSession.ws, {
+      this._deps.sendToClient(bumpedSession, {
         method: 'Target.detachedFromTarget',
         params: {
           sessionId: bumpedSession.cdpSessionId,

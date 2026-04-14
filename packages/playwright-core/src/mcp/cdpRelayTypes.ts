@@ -23,7 +23,11 @@ export type RelayState = 'connected' | 'grace' | 'extensionGrace' | 'disconnecte
 
 export interface ClientSession {
   sessionId: string;              // MCP-level identity, from WS query param or UUID fallback
-  ws: import('../utilsBundle').WebSocket;
+  send(message: CDPResponse): void;
+  sendRaw(data: string): void;
+  close(code: number, reason: string): void;
+  isOpen(): boolean;
+  _connectionId: number;          // Monotonic counter — stale close detection
   cdpSessionId: string | null;    // Derived 'session-{sessionId}', null before Target.setAutoAttach
   targetInfo: any | null;         // CDP TargetInfo from extension
   tabId: number | null;           // Chrome tab ID, set on attach

@@ -44,11 +44,11 @@ import type { ClientInfo } from './sdk/server';
 import type { ExtensionEvents } from './protocol';
 import type { WebSocket, WebSocketServer } from '../utilsBundle';
 import type { GracedSession } from './sessionGrace';
-import { type RelayState, type ClientSession, type DormantSession, type CDPRelayOptions, type CDPResponse } from './cdpRelayTypes';
+import { type RelayState, type ClientSession, type DormantSession, type CDPRelayOptions, type CDPResponse, type CDPCommand } from './cdpRelayTypes';
 import { CDPCommandRouter } from './cdpCommandRouter';
 import { CDPRelayStateMachine, DEFAULT_GRACE_TTL, DEFAULT_EXTENSION_GRACE_TTL, DEFAULT_GRACE_BUFFER_MAX_BYTES } from './cdpRelayStateMachine';
 
-export { type RelayState, type ClientSession, type CDPRelayOptions } from './cdpRelayTypes';
+export { type RelayState, type ClientSession, type CDPRelayOptions, type CDPCommand } from './cdpRelayTypes';
 
 const debugLogger = debug('pw:mcp:relay');
 
@@ -80,6 +80,9 @@ export class CDPRelayServer {
 
   // Download path override — browser-side path for Browser.setDownloadBehavior
   private readonly _downloadsPath: string | undefined;
+
+  // Monotonic counter for stale WS close detection
+  private _nextConnectionId = 0;
 
   // Sideband HTTP registry (extracted)
   private _sidebandRegistry: SidebandRegistry;
@@ -126,7 +129,7 @@ export class CDPRelayServer {
       getState: () => this._stateMachine.state,
       getExtensionCommandTimeout: () => this._extensionCommandTimeout,
       getDownloadsPath: () => this._downloadsPath,
-      sendToClient: (targetWs, msg) => this._sendToClient(targetWs, msg),
+      sendToClient: (session, msg) => this._sendToClient(session, msg),
       bufferEvent: (data) => this._stateMachine.bufferEvent(data),
     });
     installRelayHTTPEndpoints(server, this);
@@ -218,6 +221,22 @@ export class CDPRelayServer {
     }
   }
 
+  private _createWsSession(sessionId: string, clientWs: WebSocket, overrides?: Partial<Pick<ClientSession, 'cdpSessionId' | 'targetInfo' | 'tabId' | 'downloadBehavior'>>): ClientSession {
+    const connectionId = ++this._nextConnectionId;
+    return {
+      sessionId,
+      send: (msg: CDPResponse) => { if (clientWs.readyState === ws.OPEN) clientWs.send(JSON.stringify(msg)); },
+      sendRaw: (data: string) => { if (clientWs.readyState === ws.OPEN) clientWs.send(data); },
+      close: (code: number, reason: string) => clientWs.close(code, reason),
+      isOpen: () => clientWs.readyState === ws.OPEN,
+      _connectionId: connectionId,
+      cdpSessionId: overrides?.cdpSessionId ?? null,
+      targetInfo: overrides?.targetInfo ?? null,
+      tabId: overrides?.tabId ?? null,
+      downloadBehavior: overrides?.downloadBehavior ?? null,
+    };
+  }
+
   private _handlePlaywrightConnection(clientWs: WebSocket, sessionId: string): void {
     serverLog('session', `connect: sessionId=${sessionId} clients=${this._clients.size}/${this._maxConcurrentClients} state=${this._stateMachine.state}`);
     // Per-session grace: same sessionId reconnecting within TTL.
@@ -228,20 +247,15 @@ export class CDPRelayServer {
     if (gracedSession) {
       serverLog('session', `reconnect via grace: sessionId=${sessionId} tabId=${gracedSession.tabId ?? 'null'}`);
       // Also cancel server grace if active — a session is back
-      if (this._stateMachine.state === 'grace') {
-        this._stateMachine.cancelGrace();
-        this._stateMachine.flushGraceBuffer((data) => {
-          if (clientWs.readyState === ws.OPEN) clientWs.send(data);
-        });
-      }
-      const session: ClientSession = {
-        sessionId,
-        ws: clientWs,
+      const session = this._createWsSession(sessionId, clientWs, {
         cdpSessionId: gracedSession.cdpSessionId,
         targetInfo: gracedSession.targetInfo,
         tabId: gracedSession.tabId,
-        downloadBehavior: null,
-      };
+      });
+      if (this._stateMachine.state === 'grace') {
+        this._stateMachine.cancelGrace();
+        this._stateMachine.flushGraceBuffer((data) => session.sendRaw(data));
+      }
       this._clients.set(sessionId, session);
       this._stateMachine.state = 'connected';
       this._installPlaywrightHandlers(clientWs, sessionId);
@@ -253,20 +267,11 @@ export class CDPRelayServer {
     if (dormant) {
       this._dormantSessions.delete(sessionId);
       serverLog('session', `reconnect via dormant: sessionId=${sessionId} tabId=${dormant.tabId}`);
+      const session = this._createWsSession(sessionId, clientWs, { tabId: dormant.tabId });
       if (this._stateMachine.state === 'grace') {
         this._stateMachine.cancelGrace();
-        this._stateMachine.flushGraceBuffer((data) => {
-          if (clientWs.readyState === ws.OPEN) clientWs.send(data);
-        });
+        this._stateMachine.flushGraceBuffer((data) => session.sendRaw(data));
       }
-      const session: ClientSession = {
-        sessionId,
-        ws: clientWs,
-        cdpSessionId: null,
-        targetInfo: null,
-        tabId: dormant.tabId,
-        downloadBehavior: null,
-      };
       this._clients.set(sessionId, session);
       this._stateMachine.state = 'connected';
       this._installPlaywrightHandlers(clientWs, sessionId);
@@ -287,20 +292,16 @@ export class CDPRelayServer {
         return;
       }
       serverLog('session', `reconnect via server grace: sessionId=${sessionId} attempt=${this._playwrightReconnectCount}/${this._maxPlaywrightReconnects}`);
-      const session: ClientSession = {
-        sessionId,
-        ws: clientWs,
+      const session = this._createWsSession(sessionId, clientWs, {
         cdpSessionId: this._lastDisconnectedSession?.cdpSessionId ?? null,
         targetInfo: this._lastDisconnectedSession?.targetInfo ?? null,
         tabId: this._lastDisconnectedSession?.tabId ?? null,
         downloadBehavior: this._lastDisconnectedSession?.downloadBehavior ?? null,
-      };
+      });
       this._clients.set(sessionId, session);
       this._lastDisconnectedSession = null;
       this._stateMachine.cancelGrace();
-      this._stateMachine.flushGraceBuffer((data) => {
-        if (clientWs.readyState === ws.OPEN) clientWs.send(data);
-      });
+      this._stateMachine.flushGraceBuffer((data) => session.sendRaw(data));
       this._stateMachine.state = 'connected';
       this._installPlaywrightHandlers(clientWs, sessionId);
       return;
@@ -317,14 +318,7 @@ export class CDPRelayServer {
     if (this._stateMachine.state === 'disconnected')
       this._playwrightReconnectCount = 0;
 
-    const session: ClientSession = {
-      sessionId,
-      ws: clientWs,
-      cdpSessionId: null,
-      targetInfo: null,
-      tabId: null,
-      downloadBehavior: null,
-    };
+    const session = this._createWsSession(sessionId, clientWs);
     this._clients.set(sessionId, session);
     this._stateMachine.state = 'connected';
     serverLog('session', `accepted: sessionId=${sessionId} clients=${this._clients.size}/${this._maxConcurrentClients}`);
@@ -332,6 +326,7 @@ export class CDPRelayServer {
   }
 
   private _installPlaywrightHandlers(clientWs: WebSocket, sessionId: string): void {
+    const connectionId = this._clients.get(sessionId)?._connectionId;
     clientWs.on('message', async data => {
       try {
         const message = JSON.parse(data.toString());
@@ -358,8 +353,8 @@ export class CDPRelayServer {
     });
     clientWs.on('close', () => {
       const session = this._clients.get(sessionId);
-      if (!session || session.ws !== clientWs) {
-        serverLog('session', `WS close (stale): sessionId=${sessionId} found=${!!session} wsMatch=${session?.ws === clientWs} clients=${this._clients.size}/${this._maxConcurrentClients}`);
+      if (!session || session._connectionId !== connectionId) {
+        serverLog('session', `WS close (stale): sessionId=${sessionId} found=${!!session} connectionIdMatch=${session?._connectionId === connectionId} clients=${this._clients.size}/${this._maxConcurrentClients}`);
         return;
       }
       serverLog('session', `WS close: sessionId=${sessionId} cdpSessionId=${session.cdpSessionId ?? 'null'} tabId=${session.tabId ?? 'null'} clients=${this._clients.size}/${this._maxConcurrentClients}`);
@@ -480,8 +475,7 @@ export class CDPRelayServer {
             } else {
               // Tab is gone and URL fallback failed — close the zombie session
               debugLogger(`Closing unrecoverable session ${result.sessionId}: ${result.error}`);
-              if (session.ws.readyState === ws.OPEN)
-                session.ws.close(1000, `Tab lost during recovery: ${result.error}`);
+              session.close(1000, `Tab lost during recovery: ${result.error}`);
               this._clients.delete(result.sessionId);
             }
           }
@@ -521,10 +515,8 @@ export class CDPRelayServer {
   }
 
   private _closeAllClients(reason: string): void {
-    for (const session of this._clients.values()) {
-      if (session.ws.readyState === ws.OPEN)
-        session.ws.close(1000, reason);
-    }
+    for (const session of this._clients.values())
+      session.close(1000, reason);
     this._clients.clear();
   }
 
@@ -594,7 +586,7 @@ export class CDPRelayServer {
         if (this._stateMachine.state === 'grace') {
           this._stateMachine.bufferEvent(JSON.stringify(message));
         } else if (targetSession) {
-          this._sendToClient(targetSession.ws, message);
+          this._sendToClient(targetSession, message);
         }
         break;
       }
@@ -605,7 +597,7 @@ export class CDPRelayServer {
           serverLog('lifecycle', `debuggerReattached: sessionId=${reattachParams.sessionId} tabId=${reattachParams.tabId} cdpSessionId=${reattachSession.cdpSessionId ?? 'null'}`);
           // Forward to Playwright WS client as a custom event on the CDP session
           // so CRPage's FrameSession can listen for it and reinitialize contexts.
-          this._sendToClient(reattachSession.ws, {
+          this._sendToClient(reattachSession, {
             sessionId: reattachSession.cdpSessionId ?? undefined,
             method: 'debuggerReattached',
             params: { tabId: reattachParams.tabId, sessionId: reattachParams.sessionId },
@@ -687,7 +679,7 @@ export class CDPRelayServer {
       // zombie — dead CDP connection, still _currentTab, hangs serialize().
       if (session.tabId !== null && session.tabId !== tabId && session.cdpSessionId) {
         serverLog('session', `self-detach: ${sessionId} leaving tab ${session.tabId} for tab ${tabId}`);
-        this._sendToClient(session.ws, {
+        this._sendToClient(session, {
           method: 'Target.detachedFromTarget',
           params: {
             sessionId: session.cdpSessionId,
@@ -733,6 +725,86 @@ export class CDPRelayServer {
     serverLog('session', `marked for immediate cleanup: sessionId=${sessionId}`);
   }
 
+  /**
+   * Register an in-process session with the relay.
+   * Returns a handleMessage function for the transport to deliver CDP commands.
+   * The transport provides send/sendRaw/close/isOpen to deliver relay→transport messages.
+   */
+  connectSession(sessionId: string, transportFns: {
+    send: (message: CDPResponse) => void;
+    sendRaw: (data: string) => void;
+    close: (code: number, reason: string) => void;
+    isOpen: () => boolean;
+  }): { handleMessage: (message: CDPCommand) => Promise<void> } {
+    if (this._clients.size >= this._maxConcurrentClients)
+      throw new Error(`Concurrent client limit reached (${this._clients.size}/${this._maxConcurrentClients})`);
+
+    const connectionId = ++this._nextConnectionId;
+    const session: ClientSession = {
+      sessionId,
+      ...transportFns,
+      _connectionId: connectionId,
+      cdpSessionId: null,
+      targetInfo: null,
+      tabId: null,
+      downloadBehavior: null,
+    };
+    this._clients.set(sessionId, session);
+    this._stateMachine.state = 'connected';
+    serverLog('session', `in-process connect: sessionId=${sessionId} clients=${this._clients.size}/${this._maxConcurrentClients}`);
+
+    return {
+      handleMessage: async (message: CDPCommand) => {
+        if (message.method === 'contextRecoveryComplete') {
+          const recoveredSessionId = message.params?.sessionId ?? sessionId;
+          const s = this._clients.get(recoveredSessionId);
+          if (!s || s.tabId == null) return;
+          serverLog('lifecycle', `contextRecoveryComplete: sessionId=${recoveredSessionId} → tabId=${s.tabId}`);
+          this._extensionConnection?.sendRaw({ method: 'contextRecoveryComplete', params: { tabId: s.tabId } });
+          return;
+        }
+        await this._commandRouter.handleMessage(message, sessionId);
+      },
+    };
+  }
+
+  /**
+   * Disconnect an in-process session. Same teardown as WS close:
+   * detachTab, state transitions. Skips per-session grace.
+   */
+  disconnectSession(sessionId: string): void {
+    const session = this._clients.get(sessionId);
+    if (!session) return;
+
+    this._clients.delete(sessionId);
+    serverLog('session', `in-process disconnect: sessionId=${sessionId} clients=${this._clients.size}/${this._maxConcurrentClients}`);
+
+    // Detach tab if session had one
+    if (session.cdpSessionId != null && this._extensionConnection)
+      this._extensionConnection.send('detachTab', { sessionId }).catch(e => serverLog('warn', `detachTab failed for session ${sessionId}`, e));
+
+    // State transitions (same as WS close handler)
+    if (this._stateMachine.state === 'extensionGrace' && this._clients.size === 0) {
+      this._stateMachine.cancelExtensionGrace();
+      this._sessionGrace.cancelAll((sid: string, _graced: any) => {
+        if (this._extensionConnection)
+          this._extensionConnection.send('detachTab', { sessionId: sid }).catch(e => serverLog('warn', `detachTab failed for session ${sid}`, e));
+      });
+      this._stateMachine.state = 'disconnected';
+      return;
+    }
+
+    if (this._clients.size === 0) {
+      this._lastDisconnectedSession = session;
+      if (this._extensionConnection)
+        this._stateMachine.enterGrace();
+      else {
+        this._sessionGrace.cancelAll();
+        this._stateMachine.state = 'disconnected';
+      }
+    }
+  }
+
   /** Active sessions snapshot for diagnostics. */
   activeSessions(): Array<{ sessionId: string; cdpSessionId: string | null; tab: { tabId: number; url: string } | null; status?: string }> {
     const active = [...this._clients.values()].map(s => ({
@@ -757,10 +829,9 @@ export class CDPRelayServer {
     return this._dormantSessions.size;
   }
 
-  private _sendToClient(targetWs: WebSocket, message: CDPResponse): void {
+  private _sendToClient(session: ClientSession, message: CDPResponse): void {
     debugLogger('→ Client:', `${message.method ?? `response(id=${message.id})`}`);
-    if (targetWs.readyState === ws.OPEN)
-      targetWs.send(JSON.stringify(message));
+    session.send(message);
   }
 
 }

@@ -20,6 +20,7 @@ import * as playwright from '../inprocess';
 import { debug } from '../utilsBundle';
 import { createHttpServer, startHttpServer } from '../server/utils/network';
 import { CDPRelayServer } from './cdpRelay';
+import { InProcessTransport } from './inProcessTransport';
 
 import type { ClientInfo } from './sdk/server';
 import type { FullConfig } from './config';
@@ -66,8 +67,9 @@ export async function createExtensionRelay(config: FullConfig): Promise<CDPRelay
 }
 
 /**
- * Connect to a browser via an existing CDPRelay. Resets relay state,
- * waits for extension connection, then connects Playwright over CDP.
+ * Connect to a browser via an existing CDPRelay using in-process transport.
+ * Eliminates the localhost WS loopback — Playwright and the relay communicate
+ * directly via function calls within the same Node process.
  */
 export async function createExtensionBrowser(config: FullConfig, clientInfo: ClientInfo, relay: CDPRelayServer, sessionId?: string): Promise<playwright.Browser> {
   // Only reset relay state if no clients, no graced sessions, AND no dormant
@@ -76,8 +78,13 @@ export async function createExtensionBrowser(config: FullConfig, clientInfo: Cli
   if (relay.clientCount === 0 && !relay.hasGracedSessions && relay.dormantSessionCount === 0)
     relay.prepareForReconnect();
   await relay.ensureExtensionConnectionForMCPContext(clientInfo, /* forceNewTab */ false);
-  const endpoint = sessionId
-    ? `${relay.cdpEndpoint()}?sessionId=${encodeURIComponent(sessionId)}`
-    : relay.cdpEndpoint();
-  return await playwright.chromium.connectOverCDP(endpoint, { isLocal: true });
+
+  // In-process transport — eliminates localhost WS loopback.
+  // sessionId is required for multi-session identity routing.
+  const effectiveSessionId = sessionId ?? crypto.randomUUID();
+  debugLogger(`Creating in-process transport for session ${effectiveSessionId}`);
+  const transport = new InProcessTransport(relay, effectiveSessionId);
+  const browser = await (playwright.chromium as any)._connectOverCDPTransport(transport);
+  debugLogger(`Browser connected via in-process transport for session ${effectiveSessionId}`);
+  return browser;
 }

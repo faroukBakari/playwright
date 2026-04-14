@@ -165,9 +165,9 @@ export function decorateMCPCommand(command: Command, version: string) {
               // that will never reconnect.
               const sessionId = (backend as SharedBackendProxy).sessionId;
               relay.markForImmediateCleanup(sessionId);
-              // Close this session's browser context and relay WS connection.
-              // Without this, the relay slot stays occupied by a zombie WS after
-              // the MCP session is gone, eventually exhausting maxConcurrentClients.
+              // Close this session's browser context and relay session.
+              // Without this, the relay slot stays occupied after the MCP
+              // session is gone, eventually exhausting maxConcurrentClients.
               await (backend as SharedBackendProxy).removeSessionContext();
               serverLog('lifecycle', `extension mode: session disconnected (active: ${activeSessionCount})`);
 
