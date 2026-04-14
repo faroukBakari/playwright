@@ -471,11 +471,17 @@ class FrameSession {
 
     const promises: Promise<any>[] = [
       this._client.send('Page.enable'),
-      this._client.send('Page.getFrameTree').then(({ frameTree }) => {
+      this._client.send('Page.getFrameTree').then(async ({ frameTree }) => {
         if (this._isMainFrame()) {
           this._handleFrameTree(frameTree);
           this._addRendererListeners();
         }
+
+        // Enable Runtime AFTER handlers are registered. In bump scenarios (attachTab),
+        // Chrome re-emits executionContextCreated immediately on Runtime.enable for
+        // already-loaded pages. Without this ordering, events arrive before handlers
+        // exist and are silently discarded by Node.js EventEmitter.
+        await this._client.send('Runtime.enable', {});
 
         // Now that we have the frame tree, it is possible to insert oopif targets at the right place.
         const attachedToTargetEvents = this._bufferedAttachedToTargetEvents || [];
@@ -505,10 +511,13 @@ class FrameSession {
           this._firstNonInitialNavigationCommittedFulfill();
           this._eventListeners.push(eventsHelper.addEventListener(this._client, 'Page.lifecycleEvent', event => this._onLifecycleEvent(event)));
         }
+
+        // Resume target AFTER Runtime is enabled. Must follow Runtime.enable so
+        // contexts created on resume are reported via executionContextCreated.
+        await this._client.send('Runtime.runIfWaitingForDebugger');
       }),
       this._client.send('Log.enable', {}),
       lifecycleEventsEnabled = this._client.send('Page.setLifecycleEventsEnabled', { enabled: true }),
-      this._client.send('Runtime.enable', {}),
       this._client.send('Page.addScriptToEvaluateOnNewDocument', {
         source: '',
         worldName: this._crPage.utilityWorldName,
@@ -548,7 +557,6 @@ class FrameSession {
       if (videoOptions)
         promises.push(this._crPage._page.screencast.startVideoRecording(videoOptions));
     }
-    promises.push(this._client.send('Runtime.runIfWaitingForDebugger'));
     promises.push(this._firstNonInitialNavigationCommittedPromise);
     await Promise.all(promises);
   }
