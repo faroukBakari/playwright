@@ -47,7 +47,8 @@ export class CDPCommandRouter {
   async handleMessage(message: CDPCommand, sessionId: string): Promise<void> {
     debugLogger('← Client:', `${message.method} (id=${message.id})`);
     const session = this._deps.getClient(sessionId);
-    if (!session) return; // client disconnected mid-flight
+    if (!session)
+      return; // client disconnected mid-flight
     // In CDP protocol, message.sessionId is the CDP child session (iframes, workers)
     const { id, sessionId: cdpSessionId, method, params } = message;
     // Fail-fast: no extension to forward to during extension grace
@@ -122,7 +123,8 @@ export class CDPCommandRouter {
           // Re-attach to the known tab (dormant recovery path)
           const attachResult = await this._deps.getExtensionConnection()!.send('attachToTab', { sessionId, tabId: preSession.tabId } as any, { timeout: this._deps.getExtensionCommandTimeout() });
           const session = this._deps.getClient(sessionId);
-          if (!session) return {};
+          if (!session)
+            return {};
           if (attachResult.bumpedSessionId)
             this.notifyBumpedClient(attachResult.bumpedSessionId, sessionId, attachResult.tabId);
           session.targetInfo = attachResult.targetInfo;
@@ -188,8 +190,8 @@ export class CDPCommandRouter {
         method: 'Page.setDownloadBehavior',
         params: { behavior, downloadPath },
       }).then(
-        result => serverLog('download', `Page.setDownloadBehavior OK: sessionId=${session.sessionId}, result=${JSON.stringify(result)}`),
-        err => serverLog('download', `Page.setDownloadBehavior FAILED: sessionId=${session.sessionId}, error=${err.message}`)
+          result => serverLog('download', `Page.setDownloadBehavior OK: sessionId=${session.sessionId}, result=${JSON.stringify(result)}`),
+          err => serverLog('download', `Page.setDownloadBehavior FAILED: sessionId=${session.sessionId}, error=${err.message}`)
       );
     }
   }

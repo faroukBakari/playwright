@@ -37,7 +37,8 @@ export class SessionGraceManager {
   /** Move a disconnected session into grace. Returns true if entered grace. */
   enter(sessionId: string, cdpSessionId: string | null, targetInfo: any | null, tabId: number | null, onExpire: (sessionId: string, graced: GracedSession) => void): boolean {
     // Only grace sessions that have a tab binding worth preserving
-    if (cdpSessionId == null) return false;
+    if (cdpSessionId == null)
+      return false;
     this.cancel(sessionId); // clear any existing grace for this sessionId
     const timer = setTimeout(() => {
       const graced = this._graced.get(sessionId)!;
@@ -52,7 +53,8 @@ export class SessionGraceManager {
   /** Cancel grace for a session. Returns the graced session data or null. */
   cancel(sessionId: string): GracedSession | null {
     const graced = this._graced.get(sessionId);
-    if (!graced) return null;
+    if (!graced)
+      return null;
     clearTimeout(graced.timer);
     this._graced.delete(sessionId);
     debugLogger(`Session ${sessionId} grace cancelled`);
@@ -63,7 +65,8 @@ export class SessionGraceManager {
   cancelAll(onExpire?: (sessionId: string, graced: GracedSession) => void): void {
     for (const [sessionId, graced] of this._graced) {
       clearTimeout(graced.timer);
-      if (onExpire) onExpire(sessionId, graced);
+      if (onExpire)
+        onExpire(sessionId, graced);
     }
     this._graced.clear();
   }

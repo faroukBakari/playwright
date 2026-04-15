@@ -17,7 +17,7 @@ We can't parse your entire code base. Reduce it down to the absolute essentials:
 
 - Start a fresh project (`npm init playwright@latest new-project`).
 - Add only the code/DOM needed to show the problem.
-- Only use major frameworks if necessary (React, Angular, static HTTP server, etc.). 
+- Only use major frameworks if necessary (React, Angular, static HTTP server, etc.).
 - Avoid adding extra libraries unless absolutely necessary. Note that we won't install any suspect dependencies.
 
 ## Why This Matters

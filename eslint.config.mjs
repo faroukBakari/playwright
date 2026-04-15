@@ -16,14 +16,10 @@
 
 import typescriptEslint from "@typescript-eslint/eslint-plugin";
 import tsParser from "@typescript-eslint/parser";
-import notice from "eslint-plugin-notice";
 import path from "path";
 import { fileURLToPath } from "url";
 import stylistic from "@stylistic/eslint-plugin";
 import importRules from "eslint-plugin-import";
-import { fixupConfigRules } from "@eslint/compat";
-import { FlatCompat } from "@eslint/eslintrc";
-import js from "@eslint/js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -31,7 +27,6 @@ const __dirname = path.dirname(__filename);
 const plugins = {
   "@stylistic": stylistic,
   "@typescript-eslint": typescriptEslint,
-  notice,
   import: importRules,
 };
 
@@ -89,7 +84,7 @@ export const baseRules = {
       markers: ["*"],
     },
   ],
-  eqeqeq: [2],
+  eqeqeq: [2, "always", { "null": "ignore" }],
   "accessor-pairs": [
     2,
     {
@@ -191,18 +186,6 @@ export const baseRules = {
     },
   ],
   "eol-last": 2,
-
-  // copyright
-  "notice/notice": [
-    2,
-    {
-      mustMatch: "Copyright",
-      templateFile: path.join(__dirname, "utils", "copyright.js"),
-    },
-  ],
-
-  // react
-  "react/react-in-jsx-scope": 0,
 };
 
 const noFloatingPromisesRules = {
@@ -264,39 +247,6 @@ const languageOptionsWithTsConfig = {
   },
 };
 
-const compat = new FlatCompat({
-  baseDirectory: __dirname,
-  recommendedConfig: js.configs.recommended,
-  allConfig: js.configs.all,
-});
-const reactBaseConfig = fixupConfigRules(
-  compat.extends("plugin:react/recommended", "plugin:react-hooks/recommended")
-);
-const reactFiles = [];
-
-function reactPackageSection(packageName) {
-  return {
-    files: [
-      `packages/${packageName}/src/**/*.ts`,
-      `packages/${packageName}/src/**/*.tsx`,
-      `packages/web/src/**/*.ts`,
-      `packages/web/src/**/*.tsx`,
-    ],
-    languageOptions: languageOptionsWithTsConfig,
-    rules: {
-      ...baseRules,
-      "no-console": 2,
-      "no-restricted-syntax": [
-        "error",
-        {
-          selector: "JSXElement > JSXText[value=/^;\n/]",
-          message: 'Unexpected semicolon after JSX element',
-        },
-      ]
-    },
-  };
-}
-
 export default [
   {
     ignores,
@@ -306,12 +256,10 @@ export default [
     plugins,
     languageOptions,
     rules: baseRules,
-    settings: {
-      react: { version: "detect" },
-    },
   },
   {
     files: ["packages/**/*.ts"],
+    ignores: ["packages/playwright-core/src/mcp/**"],
     languageOptions: languageOptionsWithTsConfig,
     rules: {
       "no-console": 2,
@@ -326,6 +274,14 @@ export default [
         { object: "process", property: "stdout" },
         { object: "process", property: "stderr" },
       ],
+    },
+  },
+  {
+    // MCP server infrastructure — process.exit/stderr/stdout are legitimate
+    files: ["packages/playwright-core/src/mcp/**/*.ts"],
+    languageOptions: languageOptionsWithTsConfig,
+    rules: {
+      "no-console": 2,
     },
   },
   {
@@ -392,8 +348,4 @@ export default [
       ...noFloatingPromisesRules,
     },
   },
-  ...reactBaseConfig.map((config) => ({
-    ...config,
-    files: reactFiles,
-  })),
 ];

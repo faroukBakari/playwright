@@ -173,9 +173,12 @@ export async function validateConfig(config: FullConfig): Promise<void> {
 
   if (config.relay) {
     const missing: string[] = [];
-    if (config.relay.maxConcurrentClients == null) missing.push('relay.maxConcurrentClients');
-    if (config.relay.sessionGraceTTL == null) missing.push('relay.sessionGraceTTL');
-    if (config.relay.backendDisposalTTL == null) missing.push('relay.backendDisposalTTL');
+    if (config.relay.maxConcurrentClients == null)
+      missing.push('relay.maxConcurrentClients');
+    if (config.relay.sessionGraceTTL == null)
+      missing.push('relay.sessionGraceTTL');
+    if (config.relay.backendDisposalTTL == null)
+      missing.push('relay.backendDisposalTTL');
     if (missing.length > 0)
       throw new Error(`Missing required relay config: ${missing.join(', ')}. All relay fields are required in playwright-mcp.json.`);
   }
@@ -402,29 +405,38 @@ export function configFromEnv(): Config & { configFile?: string } {
   // Performance env var overrides (not routed through CLIOptions)
   const perfOverrides: NonNullable<Config['performance']> = {};
   const perfPostAction = numberParser(process.env.PLAYWRIGHT_MCP_PERF_POST_ACTION_DELAY);
-  if (perfPostAction !== undefined) perfOverrides.postActionDelay = perfPostAction;
+  if (perfPostAction !== undefined)
+    perfOverrides.postActionDelay = perfPostAction;
   const perfPostSettlement = numberParser(process.env.PLAYWRIGHT_MCP_PERF_POST_SETTLEMENT_DELAY);
-  if (perfPostSettlement !== undefined) perfOverrides.postSettlementDelay = perfPostSettlement;
+  if (perfPostSettlement !== undefined)
+    perfOverrides.postSettlementDelay = perfPostSettlement;
   const perfNetworkRace = numberParser(process.env.PLAYWRIGHT_MCP_PERF_NETWORK_RACE_TIMEOUT);
-  if (perfNetworkRace !== undefined) perfOverrides.networkRaceTimeout = perfNetworkRace;
+  if (perfNetworkRace !== undefined)
+    perfOverrides.networkRaceTimeout = perfNetworkRace;
   const perfNavLoadState = envToString(process.env.PLAYWRIGHT_MCP_PERF_NAV_LOAD_STATE);
   if (perfNavLoadState === 'load' || perfNavLoadState === 'domcontentloaded')
     perfOverrides.navigationLoadState = perfNavLoadState;
   const perfNavLoadTimeout = numberParser(process.env.PLAYWRIGHT_MCP_PERF_NAV_LOAD_TIMEOUT);
-  if (perfNavLoadTimeout !== undefined) perfOverrides.navigationLoadTimeout = perfNavLoadTimeout;
+  if (perfNavLoadTimeout !== undefined)
+    perfOverrides.navigationLoadTimeout = perfNavLoadTimeout;
   const perfPostNavLoadState = envToString(process.env.PLAYWRIGHT_MCP_PERF_POST_NAV_LOAD_STATE);
   if (perfPostNavLoadState === 'load' || perfPostNavLoadState === 'domcontentloaded')
     perfOverrides.postNavigateLoadState = perfPostNavLoadState;
   const perfPostNavLoadTimeout = numberParser(process.env.PLAYWRIGHT_MCP_PERF_POST_NAV_LOAD_TIMEOUT);
-  if (perfPostNavLoadTimeout !== undefined) perfOverrides.postNavigateLoadTimeout = perfPostNavLoadTimeout;
+  if (perfPostNavLoadTimeout !== undefined)
+    perfOverrides.postNavigateLoadTimeout = perfPostNavLoadTimeout;
   const perfWaitFastPollInterval = numberParser(process.env.PLAYWRIGHT_MCP_PERF_WAIT_FAST_POLL_INTERVAL);
-  if (perfWaitFastPollInterval !== undefined) perfOverrides.waitFastPollInterval = perfWaitFastPollInterval;
+  if (perfWaitFastPollInterval !== undefined)
+    perfOverrides.waitFastPollInterval = perfWaitFastPollInterval;
   const perfWaitFastPollRetries = numberParser(process.env.PLAYWRIGHT_MCP_PERF_WAIT_FAST_POLL_RETRIES);
-  if (perfWaitFastPollRetries !== undefined) perfOverrides.waitFastPollRetries = perfWaitFastPollRetries;
+  if (perfWaitFastPollRetries !== undefined)
+    perfOverrides.waitFastPollRetries = perfWaitFastPollRetries;
   const perfWaitDefaultTimeout = numberParser(process.env.PLAYWRIGHT_MCP_PERF_WAIT_DEFAULT_TIMEOUT);
-  if (perfWaitDefaultTimeout !== undefined) perfOverrides.waitDefaultTimeout = perfWaitDefaultTimeout;
+  if (perfWaitDefaultTimeout !== undefined)
+    perfOverrides.waitDefaultTimeout = perfWaitDefaultTimeout;
   const perfWaitMaxTimeout = numberParser(process.env.PLAYWRIGHT_MCP_PERF_WAIT_MAX_TIMEOUT);
-  if (perfWaitMaxTimeout !== undefined) perfOverrides.waitMaxTimeout = perfWaitMaxTimeout;
+  if (perfWaitMaxTimeout !== undefined)
+    perfOverrides.waitMaxTimeout = perfWaitMaxTimeout;
   if (Object.keys(perfOverrides).length > 0)
     config.performance = { ...config.performance, ...perfOverrides };
 
@@ -593,4 +605,3 @@ function envToBoolean(value: string | undefined): boolean | undefined {
 function envToString(value: string | undefined): string | undefined {
   return value ? value.trim() : undefined;
 }
-

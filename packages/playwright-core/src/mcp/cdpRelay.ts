@@ -40,13 +40,13 @@ import { SessionGraceManager } from './sessionGrace';
 import { installRelayHTTPEndpoints } from './relayHttpEndpoints';
 import { logUnhandledError, serverLog } from './log';
 
+import { CDPCommandRouter } from './cdpCommandRouter';
+import { CDPRelayStateMachine, DEFAULT_GRACE_TTL, DEFAULT_EXTENSION_GRACE_TTL, DEFAULT_GRACE_BUFFER_MAX_BYTES } from './cdpRelayStateMachine';
+import type { RelayState, ClientSession, DormantSession, CDPRelayOptions, CDPResponse, CDPCommand } from './cdpRelayTypes';
 import type { ClientInfo } from './sdk/server';
 import type { ExtensionEvents } from './protocol';
 import type { WebSocket, WebSocketServer } from '../utilsBundle';
 import type { GracedSession } from './sessionGrace';
-import { type RelayState, type ClientSession, type DormantSession, type CDPRelayOptions, type CDPResponse, type CDPCommand } from './cdpRelayTypes';
-import { CDPCommandRouter } from './cdpCommandRouter';
-import { CDPRelayStateMachine, DEFAULT_GRACE_TTL, DEFAULT_EXTENSION_GRACE_TTL, DEFAULT_GRACE_BUFFER_MAX_BYTES } from './cdpRelayStateMachine';
 
 export { type RelayState, type ClientSession, type CDPRelayOptions, type CDPCommand } from './cdpRelayTypes';
 
@@ -124,13 +124,13 @@ export class CDPRelayServer {
     this._sidebandRegistry = new SidebandRegistry(() => this._extensionConnection);
     this._sidebandRegistry.installHTTP(server);
     this._commandRouter = new CDPCommandRouter({
-      getClient: (sid) => this._clients.get(sid),
+      getClient: sid => this._clients.get(sid),
       getExtensionConnection: () => this._extensionConnection,
       getState: () => this._stateMachine.state,
       getExtensionCommandTimeout: () => this._extensionCommandTimeout,
       getDownloadsPath: () => this._downloadsPath,
       sendToClient: (session, msg) => this._sendToClient(session, msg),
-      bufferEvent: (data) => this._stateMachine.bufferEvent(data),
+      bufferEvent: data => this._stateMachine.bufferEvent(data),
     });
     installRelayHTTPEndpoints(server, this);
     this._wss = new wsServer({ server });
@@ -225,8 +225,14 @@ export class CDPRelayServer {
     const connectionId = ++this._nextConnectionId;
     return {
       sessionId,
-      send: (msg: CDPResponse) => { if (clientWs.readyState === ws.OPEN) clientWs.send(JSON.stringify(msg)); },
-      sendRaw: (data: string) => { if (clientWs.readyState === ws.OPEN) clientWs.send(data); },
+      send: (msg: CDPResponse) => {
+        if (clientWs.readyState === ws.OPEN)
+          clientWs.send(JSON.stringify(msg));
+      },
+      sendRaw: (data: string) => {
+        if (clientWs.readyState === ws.OPEN)
+          clientWs.send(data);
+      },
       close: (code: number, reason: string) => clientWs.close(code, reason),
       isOpen: () => clientWs.readyState === ws.OPEN,
       _connectionId: connectionId,
@@ -254,7 +260,7 @@ export class CDPRelayServer {
       });
       if (this._stateMachine.state === 'grace') {
         this._stateMachine.cancelGrace();
-        this._stateMachine.flushGraceBuffer((data) => session.sendRaw(data));
+        this._stateMachine.flushGraceBuffer(data => session.sendRaw(data));
       }
       this._clients.set(sessionId, session);
       this._stateMachine.state = 'connected';
@@ -270,7 +276,7 @@ export class CDPRelayServer {
       const session = this._createWsSession(sessionId, clientWs, { tabId: dormant.tabId });
       if (this._stateMachine.state === 'grace') {
         this._stateMachine.cancelGrace();
-        this._stateMachine.flushGraceBuffer((data) => session.sendRaw(data));
+        this._stateMachine.flushGraceBuffer(data => session.sendRaw(data));
       }
       this._clients.set(sessionId, session);
       this._stateMachine.state = 'connected';
@@ -301,7 +307,7 @@ export class CDPRelayServer {
       this._clients.set(sessionId, session);
       this._lastDisconnectedSession = null;
       this._stateMachine.cancelGrace();
-      this._stateMachine.flushGraceBuffer((data) => session.sendRaw(data));
+      this._stateMachine.flushGraceBuffer(data => session.sendRaw(data));
       this._stateMachine.state = 'connected';
       this._installPlaywrightHandlers(clientWs, sessionId);
       return;
@@ -371,34 +377,34 @@ export class CDPRelayServer {
 
       // Try per-session grace (preserves tab binding) — unless marked for immediate cleanup
       const enteredGrace = skipGrace ? false : this._sessionGrace.enter(
-        sessionId,
-        session.cdpSessionId,
-        session.targetInfo,
-        session.tabId,
-        (expiredSessionId: string, gracedData: GracedSession) => {
+          sessionId,
+          session.cdpSessionId,
+          session.targetInfo,
+          session.tabId,
+          (expiredSessionId: string, gracedData: GracedSession) => {
           // Grace expired — NOW send detachTab
-          debugLogger(`Per-session grace expired for ${expiredSessionId}`);
-          if (this._extensionConnection) {
-            this._extensionConnection.send('detachTab', { sessionId: expiredSessionId }).catch(e => serverLog('warn', `detachTab failed for expired session ${expiredSessionId}`, e));
+            debugLogger(`Per-session grace expired for ${expiredSessionId}`);
+            if (this._extensionConnection)
+              this._extensionConnection.send('detachTab', { sessionId: expiredSessionId }).catch(e => serverLog('warn', `detachTab failed for expired session ${expiredSessionId}`, e));
+
+            // Move to dormant — session lives as long as the tab exists
+            if (gracedData.tabId != null) {
+              this._dormantSessions.set(expiredSessionId, {
+                sessionId: expiredSessionId,
+                tabId: gracedData.tabId,
+                targetInfo: gracedData.targetInfo,
+                dormantSince: Date.now(),
+              });
+            }
           }
-          // Move to dormant — session lives as long as the tab exists
-          if (gracedData.tabId != null) {
-            this._dormantSessions.set(expiredSessionId, {
-              sessionId: expiredSessionId,
-              tabId: gracedData.tabId,
-              targetInfo: gracedData.targetInfo,
-              dormantSince: Date.now(),
-            });
-          }
-        }
       );
 
       serverLog('session', `grace: sessionId=${sessionId} entered=${enteredGrace}${skipGrace ? ' (skipped: idle disposal)' : ''} cdpSessionId=${session.cdpSessionId ?? 'null'} tabId=${session.tabId ?? 'null'}`);
 
       // If session had no tab binding (cdpSessionId null), do immediate cleanup as before
-      if (!enteredGrace && session.cdpSessionId != null && this._extensionConnection) {
+      if (!enteredGrace && session.cdpSessionId != null && this._extensionConnection)
         this._extensionConnection.send('detachTab', { sessionId }).catch(e => serverLog('warn', `detachTab failed for session ${sessionId}`, e));
-      }
+
 
       // If in extension grace and all clients gone — immediate disconnected
       if (this._stateMachine.state === 'extensionGrace' && this._clients.size === 0) {
@@ -452,7 +458,7 @@ export class CDPRelayServer {
     this._extensionConnection = new ExtensionConnection(extWs);
     this._extensionConnection.onmessage = this._handleExtensionMessage.bind(this);
     this._extensionConnection.onregistryresponse = this._sidebandRegistry.handleRegistryResponse.bind(this._sidebandRegistry);
-    this._extensionConnection.onlogmessage = (msg) => {
+    this._extensionConnection.onlogmessage = msg => {
       serverLog(`ext:${msg.channel || 'unknown'}`, msg.message || '');
     };
     this._extensionConnectionPromise.resolve();
@@ -460,40 +466,40 @@ export class CDPRelayServer {
 
     // Collect sessions that need recovery (those that went through Target.setAutoAttach)
     const sessionsToRecover = [...this._clients.values()]
-      .filter(s => s.cdpSessionId != null)
-      .map(s => ({ sessionId: s.sessionId, cdpSessionId: s.cdpSessionId! }));
+        .filter(s => s.cdpSessionId != null)
+        .map(s => ({ sessionId: s.sessionId, cdpSessionId: s.cdpSessionId! }));
 
     if (sessionsToRecover.length > 0) {
       this._extensionConnection.send('recoverSessions', { sessions: sessionsToRecover }, { timeout: this._extensionCommandTimeout }).then(
-        (results: Array<{ sessionId: string; tabId?: number; targetInfo?: any; success: boolean; error?: string }>) => {
-          for (const result of results) {
-            const session = this._clients.get(result.sessionId);
-            if (!session)
-              continue;
-            if (result.success) {
-              session.targetInfo = result.targetInfo;
-            } else {
+          (results: Array<{ sessionId: string; tabId?: number; targetInfo?: any; success: boolean; error?: string }>) => {
+            for (const result of results) {
+              const session = this._clients.get(result.sessionId);
+              if (!session)
+                continue;
+              if (result.success) {
+                session.targetInfo = result.targetInfo;
+              } else {
               // Tab is gone and URL fallback failed — close the zombie session
-              debugLogger(`Closing unrecoverable session ${result.sessionId}: ${result.error}`);
-              session.close(1000, `Tab lost during recovery: ${result.error}`);
-              this._clients.delete(result.sessionId);
+                debugLogger(`Closing unrecoverable session ${result.sessionId}: ${result.error}`);
+                session.close(1000, `Tab lost during recovery: ${result.error}`);
+                this._clients.delete(result.sessionId);
+              }
             }
-          }
-          const anySuccess = results.some(r => r.success);
-          if (anySuccess) {
-            debugLogger('Extension recovery completed');
-            this._stateMachine.state = 'connected';
-          } else {
-            serverLog('critical', 'Extension recovery failed for all sessions');
+            const anySuccess = results.some(r => r.success);
+            if (anySuccess) {
+              debugLogger('Extension recovery completed');
+              this._stateMachine.state = 'connected';
+            } else {
+              serverLog('critical', 'Extension recovery failed for all sessions');
+              this._stateMachine.state = 'disconnected';
+              this._closeAllClients('Extension recovery failed');
+            }
+          },
+          error => {
+            serverLog('critical', `Extension recovery failed: ${error.message}`);
             this._stateMachine.state = 'disconnected';
             this._closeAllClients('Extension recovery failed');
           }
-        },
-        (error) => {
-          serverLog('critical', `Extension recovery failed: ${error.message}`);
-          this._stateMachine.state = 'disconnected';
-          this._closeAllClients('Extension recovery failed');
-        }
       );
     } else {
       // No sessions need recovery — ready for new sessions
@@ -535,7 +541,7 @@ export class CDPRelayServer {
     this._extensionConnection.onclose = this._handleExtensionClose.bind(this);
     this._extensionConnection.onmessage = this._handleExtensionMessage.bind(this);
     this._extensionConnection.onregistryresponse = this._sidebandRegistry.handleRegistryResponse.bind(this._sidebandRegistry);
-    this._extensionConnection.onlogmessage = (msg) => {
+    this._extensionConnection.onlogmessage = msg => {
       serverLog(`ext:${msg.channel || 'unknown'}`, msg.message || '');
     };
     this._extensionConnectionPromise.resolve();
@@ -583,11 +589,11 @@ export class CDPRelayServer {
           method: fwdParams.method,
           params: fwdParams.params
         };
-        if (this._stateMachine.state === 'grace') {
+        if (this._stateMachine.state === 'grace')
           this._stateMachine.bufferEvent(JSON.stringify(message));
-        } else if (targetSession) {
+        else if (targetSession)
           this._sendToClient(targetSession, message);
-        }
+
         break;
       }
       case 'debuggerReattached': {
@@ -758,7 +764,8 @@ export class CDPRelayServer {
         if (message.method === 'contextRecoveryComplete') {
           const recoveredSessionId = message.params?.sessionId ?? sessionId;
           const s = this._clients.get(recoveredSessionId);
-          if (!s || s.tabId == null) return;
+          if (!s || s.tabId == null)
+            return;
           serverLog('lifecycle', `contextRecoveryComplete: sessionId=${recoveredSessionId} → tabId=${s.tabId}`);
           this._extensionConnection?.sendRaw({ method: 'contextRecoveryComplete', params: { tabId: s.tabId } });
           return;
@@ -774,7 +781,8 @@ export class CDPRelayServer {
    */
   disconnectSession(sessionId: string): void {
     const session = this._clients.get(sessionId);
-    if (!session) return;
+    if (!session)
+      return;
 
     this._clients.delete(sessionId);
     serverLog('session', `in-process disconnect: sessionId=${sessionId} clients=${this._clients.size}/${this._maxConcurrentClients}`);
@@ -796,9 +804,7 @@ export class CDPRelayServer {
 
     if (this._clients.size === 0) {
       this._lastDisconnectedSession = session;
-      if (this._extensionConnection)
-        this._stateMachine.enterGrace();
-      else {
+      if (this._extensionConnection) {this._stateMachine.enterGrace();} else {
         this._sessionGrace.cancelAll();
         this._stateMachine.state = 'disconnected';
       }

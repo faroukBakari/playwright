@@ -25,7 +25,7 @@ async function handleExit(signal: string) {
     return;
   isExiting = true;
   serverLog('signal', `received ${signal} — shutting down (${gracefullyCloseSet.size} resources to close)`);
-  // eslint-disable-next-line no-restricted-properties
+
   setTimeout(() => {
     serverLog('signal', 'graceful shutdown timed out after 15s — forcing exit');
     process.exit(0);
@@ -33,7 +33,7 @@ async function handleExit(signal: string) {
   testDebug('gracefully closing ' + gracefullyCloseSet.size);
   await gracefullyCloseAll();
   serverLog('lifecycle', 'graceful shutdown complete');
-  // eslint-disable-next-line no-restricted-properties
+
   process.exit(0);
 }
 
@@ -59,14 +59,14 @@ export function setupExitWatchdog() {
   process.on('SIGTERM', () => handleExit('SIGTERM'));
   process.on('SIGHUP', () => handleExit('SIGHUP'));
 
-  process.on('uncaughtException', (error) => {
+  process.on('uncaughtException', error => {
     serverLog('error', `uncaught exception: ${error.stack || error.message || error}`);
     getGlobalErrorLog()?.log('uncaught-exception', undefined, error);
-    // eslint-disable-next-line no-restricted-properties
+
     process.exit(1);
   });
 
-  process.on('unhandledRejection', (reason) => {
+  process.on('unhandledRejection', reason => {
     // Log but do not exit. Orphaned promises from timed-out tool dispatch
     // and browser_run_code detached promises are expected runtime events —
     // crashing the server kills all sessions for a single-promise failure.
@@ -74,7 +74,7 @@ export function setupExitWatchdog() {
     getGlobalErrorLog()?.log('unhandled-rejection', undefined, reason);
   });
 
-  process.on('exit', (code) => {
+  process.on('exit', code => {
     serverLog('lifecycle', `process exiting with code ${code}`);
   });
 }

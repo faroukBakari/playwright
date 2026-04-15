@@ -31,13 +31,13 @@ export interface RelayHTTPDelegate {
 
 function sendError(res: http.ServerResponse, e: Error): void {
   res.setHeader('Content-Type', 'application/json');
-  if (e.message.includes('not connected')) {
+  if (e.message.includes('not connected'))
     res.statusCode = 503;
-  } else if (e.message.includes('timed out')) {
+  else if (e.message.includes('timed out'))
     res.statusCode = 504;
-  } else {
+  else
     res.statusCode = 500;
-  }
+
   res.end(JSON.stringify({ error: e.message }));
 }
 

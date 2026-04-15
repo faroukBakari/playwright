@@ -61,7 +61,8 @@ export class InProcessTransport implements ConnectionTransport {
         });
       },
       sendRaw: (data: string) => {
-        if (this._closed) return;
+        if (this._closed)
+          return;
         this._messageWrap(() => {
           if (!this._closed && this.onmessage) {
             try {
@@ -73,7 +74,8 @@ export class InProcessTransport implements ConnectionTransport {
         });
       },
       close: (_code: number, reason: string) => {
-        if (this._closed) return;
+        if (this._closed)
+          return;
         this._closed = true;
         debugLogger(`<in-process relay-closed> sessionId=${sessionId} reason=${reason}`);
         serverLog('transport', `in-process transport closed by relay: sessionId=${sessionId} reason=${reason}`);
@@ -96,7 +98,8 @@ export class InProcessTransport implements ConnectionTransport {
   }
 
   close(): void {
-    if (this._closed) return;
+    if (this._closed)
+      return;
     this._closed = true;
     debugLogger(`<in-process closing> sessionId=${this._sessionId}`);
     serverLog('transport', `in-process transport closing: sessionId=${this._sessionId}`);

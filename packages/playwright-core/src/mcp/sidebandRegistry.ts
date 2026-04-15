@@ -43,9 +43,11 @@ export class SidebandRegistry {
   /** Called by ExtensionConnection when a registry:* response arrives */
   handleRegistryResponse(parsed: any): void {
     const id = parsed._callbackId;
-    if (!id) return;
+    if (!id)
+      return;
     const cb = this._registryCallbacks.get(id);
-    if (!cb) return;
+    if (!cb)
+      return;
     // Strip internal routing field before returning
     delete parsed._callbackId;
     cb.resolve(parsed);

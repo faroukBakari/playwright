@@ -27,8 +27,10 @@ export const testDebug = debug('pw:mcp:test');
 const LOG_LEVELS: Record<string, number> = { error: 0, warn: 1, info: 2, debug: 3 };
 
 function categoryToLevel(category: string): number {
-  if (category === 'critical' || category === 'error') return LOG_LEVELS['error']!;
-  if (category === 'warn') return LOG_LEVELS['warn']!;
+  if (category === 'critical' || category === 'error')
+    return LOG_LEVELS['error']!;
+  if (category === 'warn')
+    return LOG_LEVELS['warn']!;
   return LOG_LEVELS['info']!;
 }
 
@@ -47,7 +49,8 @@ function getLogLevel(): number {
  * Category mapping: critical/error → error, warn → warn, all others → info.
  */
 export function serverLog(category: string, message: string, ...args: unknown[]) {
-  if (categoryToLevel(category) > getLogLevel()) return;
+  if (categoryToLevel(category) > getLogLevel())
+    return;
   const now = new Date();
   const ts = now.toLocaleString('sv-SE', { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }).replace(' ', 'T')
     + '.' + String(now.getMilliseconds()).padStart(3, '0');

@@ -379,4 +379,3 @@ export type Config = {
     waitMaxTimeout?: number;
   };
 };
-

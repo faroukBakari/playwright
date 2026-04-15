@@ -39,7 +39,7 @@ jobs:
             });
             const commitHeader = data.message.split('\n')[0];
             const prMatch = commitHeader.match(/#(\d+)/);
-            const formattedCommit = prMatch 
+            const formattedCommit = prMatch
               ? `https://github.com/microsoft/playwright/pull/${prMatch[1]}`
               : `https://github.com/${context.repo.owner}/${context.repo.repo}/commit/${context.sha} (${commitHeader})`;
 
