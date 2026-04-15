@@ -184,12 +184,12 @@ export function generateAriaTree(rootElement: Element, publicOptions: AriaTreeOp
 
     if (ariaNode.role === 'link' && element.hasAttribute('href')) {
       const href = element.getAttribute('href')!;
-      ariaNode.props['url'] = href;
+      ariaNode.props['url'] = normalizeWhiteSpace(href);
     }
 
     if (ariaNode.role === 'textbox' && element.hasAttribute('placeholder') && element.getAttribute('placeholder') !== ariaNode.name) {
       const placeholder = element.getAttribute('placeholder')!;
-      ariaNode.props['placeholder'] = placeholder;
+      ariaNode.props['placeholder'] = normalizeWhiteSpace(placeholder);
     }
   }
 
@@ -742,7 +742,10 @@ export function renderAriaTree(ariaSnapshot: AriaSnapshot, publicOptions: AriaTr
     outFilterStats.nodesSkipped = filterNodesSkipped;
   }
 
-  return lines.join('\n');
+  // NFKC normalization: collapses fullwidth Latin, ligatures, and compatibility
+  // homoglyphs (e.g. Ａ→A, ﬁ→fi). Defense-in-depth against homoglyph injection.
+  // Safe for French/English — accented chars (é, è, ç) are NFC-stable.
+  return lines.join('\n').normalize('NFKC');
 }
 
 function convertToBestGuessRegex(text: string): string {

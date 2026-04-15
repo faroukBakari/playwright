@@ -84,7 +84,11 @@ export function cacheNormalizedWhitespaces() {
 export function normalizeWhiteSpace(text: string): string {
   let result = normalizedWhitespaceCache?.get(text);
   if (result === undefined) {
-    result = text.replace(/[\u200b\u00ad]/g, '').trim().replace(/\s+/g, ' ');
+    // Strip invisible Unicode characters that could carry hidden LLM instructions:
+    // Tags block U+E0000-E007F (ASCII smuggling), zero-width chars, BiDi overrides,
+    // invisible operators, interlinear annotations. CVE-2025-32711.
+    // The 'u' flag is required for \u{E0000} supplementary plane syntax.
+    result = text.replace(/[\u200B\u200C\u200D\u00AD\uFEFF\u200E\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFFF9-\uFFFB\u{E0000}-\u{E007F}]/gu, '').trim().replace(/\s+/g, ' ');
     normalizedWhitespaceCache?.set(text, result);
   }
   return result;
