@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+import crypto from 'crypto';
 import { Context } from './context';
 import { Response, requestDebug } from './response';
 import { SessionLog } from './sessionLog';
@@ -21,7 +22,6 @@ import { createPerfLog } from './perfLog';
 import { createErrorLog } from './errorLog';
 import { debug } from '../utilsBundle';
 import { serverLog } from '../mcp/log';
-import crypto from 'crypto';
 
 import type { SnapshotMode } from './snapshotOptions';
 
@@ -271,7 +271,7 @@ export class BrowserServerBackend implements ServerBackend {
       // Fast-fail when no tab exists and the tool requires one.
       // Inside the try so that finally{} handles setRunningTool cleanup.
       if (!hasPage && !tool.noTabRequired) {
-        const msg = `No active tab — use browser_navigate or browser_create_tab to open a page first.`;
+        const msg = `No active tab — attach to an existing tab or use browser_navigate / browser_create_tab to open a page first.`;
         serverLog('warn', `[${name}] fast-fail: ${msg}`);
         return {
           content: [{ type: 'text' as const, text: `### Error\n\n${msg}` }],
@@ -280,50 +280,50 @@ export class BrowserServerBackend implements ServerBackend {
       }
 
       responseObject = await context.perfLog.timeAsync(
-        { phase: 'tool', step: 'e2e', side: 'server', target_ms: timeoutMs },
-        async () => {
-          const toolPromise = tool.handle(context, parsedArguments, response);
-          let timedOut = false;
-          let timeoutId: ReturnType<typeof setTimeout>;
-          const safetyNetMs = timeoutMs + 500;
-          const timeoutPromise = new Promise<never>((_, reject) => {
-            timeoutId = setTimeout(() => {
-              timedOut = true;
-              const stateHint = hasPage
-                ? `active page: ${pageUrl}`
-                : 'no active page — session may be stale or tab creation failed';
-              serverLog('warn', `[${name}] Safety-net timeout fired after ${safetyNetMs}ms (inner deadline was ${timeoutMs}ms). Session state: ${stateHint}. Inner deadline propagation may have failed — check tool handler.`);
-              const suggestion = hasPage
-                ? ''
-                : ' No active page in this session — try browser_create_tab or restart the server.';
-              reject(new Error(`Tool "${name}" timed out after ${timeoutMs}ms.${suggestion}`));
-            }, safetyNetMs);
-          });
+          { phase: 'tool', step: 'e2e', side: 'server', target_ms: timeoutMs },
+          async () => {
+            const toolPromise = tool.handle(context, parsedArguments, response);
+            let timedOut = false;
+            let timeoutId: ReturnType<typeof setTimeout>;
+            const safetyNetMs = timeoutMs + 500;
+            const timeoutPromise = new Promise<never>((_, reject) => {
+              timeoutId = setTimeout(() => {
+                timedOut = true;
+                const stateHint = hasPage
+                  ? `active page: ${pageUrl}`
+                  : 'no active page — session may be stale or tab creation failed';
+                serverLog('warn', `[${name}] Safety-net timeout fired after ${safetyNetMs}ms (inner deadline was ${timeoutMs}ms). Session state: ${stateHint}. Inner deadline propagation may have failed — check tool handler.`);
+                const suggestion = hasPage
+                  ? ''
+                  : ' No active page in this session — try browser_create_tab or restart the server.';
+                reject(new Error(`Tool "${name}" timed out after ${timeoutMs}ms.${suggestion}`));
+              }, safetyNetMs);
+            });
 
-          try {
-            await Promise.race([toolPromise, timeoutPromise]);
-          } catch (e) {
-            clearTimeout(timeoutId!);
-            if (timedOut) {
+            try {
+              await Promise.race([toolPromise, timeoutPromise]);
+            } catch (e) {
+              clearTimeout(timeoutId!);
+              if (timedOut) {
               // Timeout won — tool handler is still running in the browser.
               // Catch its eventual rejection so it doesn't become an unhandled
               // rejection at process level. Log with full dispatch context.
-              toolPromise.catch(orphanedError => {
-                serverLog('orphaned', `[${name}] callId=${callId}: ${orphanedError}`);
-                this._errorLog?.log(name, callId, orphanedError);
-              });
+                toolPromise.catch(orphanedError => {
+                  serverLog('orphaned', `[${name}] callId=${callId}: ${orphanedError}`);
+                  this._errorLog?.log(name, callId, orphanedError);
+                });
+              }
+              throw e;
             }
-            throw e;
-          }
-          clearTimeout(timeoutId!);
-          return await response.serialize();
-        },
-        (result, error) => ({
-          args_keys: Object.keys(parsedArguments),
-          response_chars: result ? JSON.stringify(result).length : 0,
-          timeout_ms: timeoutMs,
-          outcome: error ? (String(error).includes('timed out') ? 'timeout' : 'error') : 'success',
-        }),
+            clearTimeout(timeoutId!);
+            return await response.serialize();
+          },
+          (result, error) => ({
+            args_keys: Object.keys(parsedArguments),
+            response_chars: result ? JSON.stringify(result).length : 0,
+            timeout_ms: timeoutMs,
+            outcome: error ? (String(error).includes('timed out') ? 'timeout' : 'error') : 'success',
+          }),
       );
       this._sessionLog?.logResponse(name, parsedArguments, responseObject);
       const elapsed = Math.round(performance.now() - toolStart);

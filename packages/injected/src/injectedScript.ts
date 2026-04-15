@@ -313,10 +313,34 @@ export class InjectedScript {
     let rootElement = node as Element;
     let selectorResolved: boolean | undefined;
     if (options.rootSelector) {
-      const selected = rootElement.querySelector(options.rootSelector);
-      selectorResolved = !!selected;
-      if (selected)
-        rootElement = selected;
+      // Bare ARIA role names auto-expand to match both native HTML elements
+      // and [role="..."] attributes. Only roles where the ARIA name differs
+      // from the HTML tag need explicit mapping — everything else is dynamic.
+      const ROLE_TO_TAG: Record<string, string> = {
+        navigation: 'nav',
+        complementary: 'aside',
+        banner: 'header',
+        contentinfo: 'footer',
+        region: 'section[aria-label]',
+      };
+      const isBareRole = /^[a-z]+(-[a-z]+)*$/.test(options.rootSelector);
+      let expandedSelector: string;
+      if (isBareRole && !options.rootSelector.includes('[') && !options.rootSelector.includes('.') && !options.rootSelector.includes('#')) {
+        const nativeTag = ROLE_TO_TAG[options.rootSelector] ?? options.rootSelector;
+        expandedSelector = `${nativeTag}, [role="${options.rootSelector}"]`;
+      } else {
+        expandedSelector = options.rootSelector;
+      }
+      const candidates = Array.from(rootElement.querySelectorAll(expandedSelector));
+      selectorResolved = candidates.length > 0;
+      if (candidates.length === 1) {
+        rootElement = candidates[0];
+      } else if (candidates.length > 1) {
+        // Pick the match with the most content — empty popovers yield to real modals
+        rootElement = candidates.reduce((best, el) =>
+          (el.textContent?.length ?? 0) > (best.textContent?.length ?? 0) ? el : best
+        );
+      }
     }
     const ariaSnapshot = generateAriaTree(rootElement, options);
     const filterStats: RenderFilterStats = { nodesTotal: 0, nodesRendered: 0, nodesSkipped: 0 };
