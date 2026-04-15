@@ -28,6 +28,11 @@ import type { SnapshotMode } from './snapshotOptions';
 
 export const requestDebug = debug('pw:mcp:request');
 
+export function validateFilename(filename: string) {
+  if (/[/\\]/.test(filename))
+    throw new Error('filename must not contain path separators (/ or \\)');
+}
+
 type ResolvedFile = {
   fileName: string;
   relativeName: string;
@@ -73,10 +78,12 @@ export class Response {
 
   async resolveClientFile(template: FilenameTemplate, title: string): Promise<ResolvedFile> {
     let fileName: string;
-    if (template.suggestedFilename)
+    if (template.suggestedFilename) {
+      validateFilename(template.suggestedFilename);
       fileName = await this._context.workspaceFile(template.suggestedFilename, this._clientWorkspace);
-    else
+    } else {
       fileName = await this._context.outputFile(template, { origin: 'llm' });
+    }
     const relativeName = this._computRelativeTo(fileName);
     const printableLink = `- [${title}](${relativeName})`;
     return { fileName, relativeName, printableLink };
@@ -248,8 +255,8 @@ export class Response {
     if (this._snapshotWaitFor && hasTab && wantsSnapshot) {
       const tab = this._context.currentTabOrDie();
       const waitForTimeout = Math.min(
-        this._context.config.snapshot?.waitForTimeout ?? 3000,
-        this._context.remainingBudget()
+          this._context.config.snapshot?.waitForTimeout ?? 3000,
+          this._context.remainingBudget()
       );
       const perf = this._context.perfLog;
       try {
@@ -260,21 +267,23 @@ export class Response {
             target_ms: waitForTimeout, condition: 'text', value: this._snapshotWaitFor.text,
             ...(within ? { within } : {}),
           }, () => tab.page.waitForFunction(
-            ([text, within]: [string, string | undefined]) => {
-              let root: HTMLElement | null = within ? document.querySelector<HTMLElement>(within) : null;
-              if (within && !root) {
-                for (const iframe of document.querySelectorAll('iframe')) {
-                  try {
-                    root = iframe.contentDocument?.querySelector<HTMLElement>(within) ?? null;
-                    if (root) break;
-                  } catch { /* cross-origin — skip */ }
+              ([text, within]: [string, string | undefined]) => {
+                let root: HTMLElement | null = within ? document.querySelector<HTMLElement>(within) : null;
+                if (within && !root) {
+                  for (const iframe of document.querySelectorAll('iframe')) {
+                    try {
+                      root = iframe.contentDocument?.querySelector<HTMLElement>(within) ?? null;
+                      if (root)
+                        break;
+                    } catch { /* cross-origin — skip */ }
+                  }
                 }
-              }
-              if (!root) root = document.body;
-              return root?.innerText?.includes(text) ?? false;
-            },
-            [this._snapshotWaitFor!.text!, within] as [string, string | undefined],
-            { timeout: waitForTimeout }
+                if (!root)
+                  root = document.body;
+                return root?.innerText?.includes(text) ?? false;
+              },
+              [this._snapshotWaitFor!.text!, within] as [string, string | undefined],
+              { timeout: waitForTimeout }
           ));
         } else if (this._snapshotWaitFor.textGone) {
           await perf.timeAsync({
@@ -282,21 +291,23 @@ export class Response {
             target_ms: waitForTimeout, condition: 'textGone', value: this._snapshotWaitFor.textGone,
             ...(within ? { within } : {}),
           }, () => tab.page.waitForFunction(
-            ([text, within]: [string, string | undefined]) => {
-              let root: HTMLElement | null = within ? document.querySelector<HTMLElement>(within) : null;
-              if (within && !root) {
-                for (const iframe of document.querySelectorAll('iframe')) {
-                  try {
-                    root = iframe.contentDocument?.querySelector<HTMLElement>(within) ?? null;
-                    if (root) break;
-                  } catch { /* cross-origin — skip */ }
+              ([text, within]: [string, string | undefined]) => {
+                let root: HTMLElement | null = within ? document.querySelector<HTMLElement>(within) : null;
+                if (within && !root) {
+                  for (const iframe of document.querySelectorAll('iframe')) {
+                    try {
+                      root = iframe.contentDocument?.querySelector<HTMLElement>(within) ?? null;
+                      if (root)
+                        break;
+                    } catch { /* cross-origin — skip */ }
+                  }
                 }
-              }
-              if (!root) root = document.body;
-              return !(root?.innerText?.includes(text) ?? false);
-            },
-            [this._snapshotWaitFor!.textGone!, within] as [string, string | undefined],
-            { timeout: waitForTimeout }
+                if (!root)
+                  root = document.body;
+                return !(root?.innerText?.includes(text) ?? false);
+              },
+              [this._snapshotWaitFor!.textGone!, within] as [string, string | undefined],
+              { timeout: waitForTimeout }
           ));
         } else if (this._snapshotWaitFor.selector) {
           await perf.timeAsync({
