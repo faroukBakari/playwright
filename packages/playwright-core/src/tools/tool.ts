@@ -68,6 +68,13 @@ export type TabTool<Input extends z.Schema = z.Schema> = {
   noTabRequired?: boolean;
   schema: ToolSchema<Input>;
   clearsModalState?: ModalState['type'];
+  /**
+   * When true, the "modal must be present" guard is skipped even when
+   * clearsModalState is set. The handler is responsible for deciding what
+   * to do when there is no modal. Use only for tools that support both
+   * modal and non-modal operation (e.g. browser_file_upload with ref).
+   */
+  clearsModalStateOptional?: boolean;
   handle: (tab: Tab, params: z.output<Input>, response: Response) => Promise<void>;
 };
 
@@ -81,11 +88,11 @@ export function defineTabTool<Input extends z.Schema>(tool: TabTool<Input>): Too
     handle: async (context, params, response) => {
       const tab = await context.ensureTab();
       const modalStates = tab.modalStates().map(state => state.type);
-      if (tool.clearsModalState && !modalStates.includes(tool.clearsModalState))
+      if (tool.clearsModalState && !modalStates.includes(tool.clearsModalState) && !tool.clearsModalStateOptional) {
         response.addError(`Error: The tool "${tool.schema.name}" can only be used when there is related modal state present.`);
-      else if (!tool.clearsModalState && modalStates.length)
+      } else if (!tool.clearsModalState && modalStates.length) {
         response.addError(`Error: Tool "${tool.schema.name}" does not handle the modal state.`);
-      else {
+      } else {
         await tool.handle(tab, params, response);
         // Pass snapshotWaitFor from tool params to response for pre-snapshot waiting
         if (hasSnapshotWaitFor(params))

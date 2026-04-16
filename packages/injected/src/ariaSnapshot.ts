@@ -135,7 +135,24 @@ export function generateAriaTree(rootElement: Element, publicOptions: AriaTreeOp
       }
     }
 
-    const childAriaNode = visible ? toAriaNode(element, options) : null;
+    // File inputs (<input type="file">) are the only input type where the element itself
+    // is the unavoidable interaction target for setInputFiles/browser_file_upload, regardless
+    // of CSS visibility. React patterns (Chakra, MUI, Material) universally hide the native
+    // input with display:none and proxy clicks via styled labels/buttons.
+    // Unlike checkbox/radio (where clicking the label fires the event), file upload requires
+    // the native input element to be the direct target of setInputFiles.
+    // We force-include hidden file inputs in AI-mode snapshots and assign refs unconditionally
+    // so agents can target them with browser_file_upload(ref).
+    const isHiddenFileInput = options.refs !== 'none' &&
+        element.nodeName === 'INPUT' &&
+        (element as HTMLInputElement).type === 'file' &&
+        !visible;
+
+    // Force-assign a ref for hidden file inputs by building the node with refs:'all'
+    // so the visibility guard in computeAriaRef is bypassed.
+    const childAriaNode = isHiddenFileInput
+      ? toAriaNode(element, { ...options, refs: 'all' })
+      : (visible ? toAriaNode(element, options) : null);
     if (childAriaNode) {
       if (childAriaNode.ref) {
         snapshot.elements.set(childAriaNode.ref, element);
