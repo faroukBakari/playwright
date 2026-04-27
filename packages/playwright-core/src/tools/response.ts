@@ -62,6 +62,7 @@ export class Response {
   readonly toolArgs: Record<string, any>;
   private _clientWorkspace: string;
   private _imageResults: { data: Buffer, imageType: 'png' | 'jpeg' }[] = [];
+  private _hadTabsAtConstruction: boolean;
 
   constructor(context: Context, toolName: string, toolArgs: Record<string, any>, relativeTo?: string, snapshotSelector?: string, snapshotMode?: SnapshotMode) {
     this._context = context;
@@ -70,6 +71,7 @@ export class Response {
     this._clientWorkspace = relativeTo ?? context.options.cwd;
     this._snapshotSelector = snapshotSelector;
     this._snapshotMode = snapshotMode;
+    this._hadTabsAtConstruction = context.tabs().length > 0;
   }
 
   private _computRelativeTo(fileName: string): string {
@@ -334,7 +336,12 @@ export class Response {
         addSection('Open tabs', renderTabsMarkdown(tabHeaders));
       addSection('Page', renderTabMarkdown(tabHeaders.find(h => h.current) ?? tabHeaders[0]));
     }
-    if (this._context.tabs().length === 0)
+    // Signal session close only when tabs decreased to zero (browser was closed
+    // during tool execution). When tabs were already zero before the tool ran,
+    // the session simply hasn't opened a Playwright-managed tab yet — that's
+    // expected for noTabRequired tools (browser_list_tabs, browser_create_tab,
+    // browser_attach_tab) and must not trigger backend disposal.
+    if (this._context.tabs().length === 0 && this._hadTabsAtConstruction)
       this._isClose = true;
 
     // Handle modal states.

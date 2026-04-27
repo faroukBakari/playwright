@@ -158,7 +158,10 @@ export function decorateMCPCommand(command: Command, version: string) {
               return new SharedBackendProxy(sharedBackend, sessionId);
             },
             disposed: async backend => {
-              activeSessionCount--;
+              if (activeSessionCount > 0)
+                activeSessionCount--;
+              else
+                serverLog('warn', `[DIAG] disposed called with activeSessionCount=${activeSessionCount}, skipping decrement`);
               // Signal relay to skip per-session grace for this session — the MCP
               // transport is permanently gone (SESSION_IDLE_TTL or explicit close),
               // so the relay should not hold a 5-minute grace window for a session

@@ -56,9 +56,9 @@ class BackendManager {
     const factory = this._backends.get(backend);
     if (!factory)
       return;
+    this._backends.delete(backend);
     await backend.dispose?.();
     await factory.disposed(backend).catch(serverDebug);
-    this._backends.delete(backend);
   }
 }
 
@@ -98,7 +98,13 @@ export function createServer(name: string, version: string, factory: ServerBacke
 
   let backendPromise: Promise<ServerBackend> | undefined;
 
-  const onClose = () => backendPromise?.then(b => backendManager.disposeBackend(b)).catch(serverDebug);
+  const onClose = () => {
+    const hasBackend = !!backendPromise;
+    serverLog('lifecycle', `[DIAG] onClose fired: backendPromise=${hasBackend}, sessionId=${sessionId}`);
+    const p = backendPromise;
+    backendPromise = undefined;  // prevent stale reuse by subsequent callTool
+    p?.then(b => backendManager.disposeBackend(b)).catch(serverDebug);
+  };
   addServerListener(server, 'close', onClose);
 
   server.setRequestHandler(mcpBundle.CallToolRequestSchema, async (request, extra) => {
