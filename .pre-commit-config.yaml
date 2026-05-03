@@ -19,3 +19,10 @@ repos:
         language: system
         files: \.tsx?$
         pass_filenames: true
+
+      - id: typecheck
+        name: typecheck
+        entry: bash -c 'eval "$(fnm env)" && fnm use 22 && bash scripts/check-typecheck-baseline.sh'
+        language: system
+        pass_filenames: false
+        files: ^packages/playwright-core/src/(server/chromium|mcp)/.*\.tsx?$
