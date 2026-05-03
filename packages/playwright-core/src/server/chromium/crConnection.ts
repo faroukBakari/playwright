@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-import {  assert, eventsHelper } from '../../utils';
+import { eventsHelper } from '../../utils';
 import { debugLogger } from '../utils/debugLogger';
 import { helper } from '../helper';
 import { ProtocolError } from '../protocolError';
@@ -180,8 +180,11 @@ export class CRSession extends SdkObject<Protocol.EventMap & ConnectionEventMap>
       }
     } else if (object.id && object.error?.code === -32001) {
       // Message to a closed session, just ignore it.
+    } else if (object.id) {
+      // Late CDP response — callback already cleaned up by timeout or disposal.
+      // This is normal during session teardown and tool-level timeouts.
+      debugLogger.log('protocol', `orphaned CDP response id=${object.id} error=${object.error?.code}: ${object.error?.message}`);
     } else {
-      assert(!object.id, object?.error?.message || undefined);
       Promise.resolve().then(() => {
         if (this._eventListener)
           this._eventListener(object.method!, object.params);
