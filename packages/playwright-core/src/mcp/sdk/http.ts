@@ -177,7 +177,7 @@ export async function installHttpTransport(httpServer: http.Server, serverBacken
 
     const url = new URL(`http://localhost${req.url}`);
     // Health endpoint: lightweight probe that does NOT create MCP sessions.
-    // Used by server.sh health checks, load balancers, and monitoring.
+    // Used by server.py health checks, load balancers, and monitoring.
     if (url.pathname === '/health' && req.method === 'GET') {
       res.statusCode = 200;
       res.setHeader('Content-Type', 'application/json');

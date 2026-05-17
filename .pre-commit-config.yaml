@@ -22,7 +22,7 @@ repos:
 
       - id: typecheck
         name: typecheck
-        entry: bash -c 'eval "$(fnm env)" && fnm use 22 && bash scripts/check-typecheck-baseline.sh'
+        entry: uv run scripts/check-typecheck-baseline.py
         language: system
         pass_filenames: false
         files: ^packages/playwright-core/src/(server/chromium|mcp)/.*\.tsx?$

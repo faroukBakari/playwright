@@ -41,7 +41,7 @@ function getLogLevel(): number {
 
 /**
  * Always-on server lifecycle logger. Writes timestamped lines to stderr
- * (which server.sh redirects to .local/server.log). Not gated behind
+ * (which server.py redirects to .local/server.log). Not gated behind
  * DEBUG env var — these are the production breadcrumbs for troubleshooting
  * server crashes, idle exits, and session lifecycle.
  *

@@ -53,7 +53,7 @@ export async function createExtensionRelay(config: FullConfig): Promise<CDPRelay
   relayHttpUrl = `${cdpUrl.protocol}//${cdpUrl.host}`;
   debugLogger(`Relay HTTP URL for sideband: ${relayHttpUrl}`);
 
-  // Write relay port for CLI tooling (server.sh sessions)
+  // Write relay port for CLI tooling (server.py sessions)
   const relayPort = cdpUrl.port;
   const localDir = path.join(process.cwd(), '.local');
   try {
