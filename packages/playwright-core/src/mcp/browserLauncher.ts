@@ -49,6 +49,17 @@ export function launchBrowserToExtension(extensionEndpoint: string, forceNewTab:
   openUrlInChrome(url.toString());
 }
 
+function chromeNotFoundError(): Error {
+  if (process.platform === 'win32') {
+    return new Error(
+        'Chrome/Chromium not found. ' +
+        'On Windows without admin rights, see docs/chromium-fallback.md ' +
+        'in the web-automation project — read more to know about the ' +
+        'user-scope portable Chromium recipe.');
+  }
+  return new Error('Chrome/Chromium not found. Install Chrome or set a browser channel.');
+}
+
 export function openUrlInChrome(url: string): void {
   const isWSL = (() => {
     try {
@@ -86,6 +97,6 @@ export function openUrlInChrome(url: string): void {
       }
     }
     if (!launched)
-      throw new Error('Chrome/Chromium not found. Install Chrome or set a browser channel.');
+      throw chromeNotFoundError();
   }
 }
