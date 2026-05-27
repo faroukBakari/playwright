@@ -14,6 +14,11 @@
     "name": "Microsoft Corporation"
   },
   "license": "Apache-2.0",
+  "dependencies": {
+    "utils-bundle": "link:./bundles/utils",
+    "mcp-bundle": "link:./bundles/mcp",
+    "zip-bundle": "link:./bundles/zip"
+  },
   "exports": {
     ".": {
       "types": "./types/types.d.ts"

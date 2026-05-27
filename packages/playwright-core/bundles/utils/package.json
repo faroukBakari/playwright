@@ -2,6 +2,7 @@
   "name": "utils-bundle",
   "version": "0.0.1",
   "private": true,
+  "main": "src/utilsBundleImpl.ts",
   "dependencies": {
     "colors": "1.4.0",
     "commander": "^13.0.0",

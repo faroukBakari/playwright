@@ -2,6 +2,7 @@
   "name": "zip-bundle",
   "version": "0.0.1",
   "private": true,
+  "main": "src/zipBundleImpl.ts",
   "dependencies": {
     "debug": "^4.1.1",
     "get-stream": "^5.1.0",

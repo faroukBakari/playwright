@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-export const yazl: typeof import('../bundles/zip/node_modules/@types/yazl') = require('./zipBundleImpl').yazl;
+export const yazl: typeof import('../bundles/zip/node_modules/@types/yazl') = require('zip-bundle').yazl;
 export type { ZipFile } from '../bundles/zip/node_modules/@types/yazl';
-export const yauzl: typeof import('../bundles/zip/node_modules/@types/yauzl') = require('./zipBundleImpl').yauzl;
+export const yauzl: typeof import('../bundles/zip/node_modules/@types/yauzl') = require('zip-bundle').yauzl;
 export type { Entry, ZipFile as UnzipFile } from '../bundles/zip/node_modules/@types/yauzl';
-export const extract: typeof import('../bundles/zip/src/third_party/extract-zip.d.ts') = require('./zipBundleImpl').extract;
+export const extract: typeof import('../bundles/zip/src/third_party/extract-zip.d.ts') = require('zip-bundle').extract;

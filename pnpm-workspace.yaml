@@ -1,0 +1,11 @@
+packages:
+  - 'packages/*'
+  - 'packages/playwright-core/bundles/*'
+
+allowBuilds:
+  electron: true
+  esbuild: true
+
+onlyBuiltDependencies:
+  - electron
+  - esbuild

@@ -15,7 +15,7 @@
  */
 
 // @ts-ignore
-import * as bundle from './mcpBundleImpl';
+import * as bundle from 'mcp-bundle';
 
 const zodToJsonSchema: (schema: any, options?: any) => any = bundle.zodToJsonSchema;
 const Client: typeof import('@modelcontextprotocol/sdk/client/index.js').Client = bundle.Client;
