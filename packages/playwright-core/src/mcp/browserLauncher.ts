@@ -61,6 +61,20 @@ function chromeNotFoundError(): Error {
 }
 
 export function openUrlInChrome(url: string): void {
+  // Explicit binary path takes precedence on every platform. Used by the
+  // portable Chromium recipe on bare Windows where no Chrome is registered
+  // with the OS and PATH lookups fail. See docs/chromium-fallback.md.
+  const explicitExe = process.env.PLAYWRIGHT_MCP_EXECUTABLE_PATH;
+  if (explicitExe) {
+    spawn(explicitExe, [url], {
+      detached: true,
+      shell: false,
+      stdio: 'ignore',
+      windowsHide: true,
+    }).unref();
+    return;
+  }
+
   const isWSL = (() => {
     try {
       return fs.readFileSync('/proc/version', 'utf8').toLowerCase().includes('microsoft');
@@ -81,6 +95,16 @@ export function openUrlInChrome(url: string): void {
     // macOS: Launch Services finds Chrome
     spawn('open', ['-a', 'Google Chrome', url], {
       detached: true,
+      stdio: 'ignore',
+    }).unref();
+  } else if (process.platform === 'win32') {
+    // Bare Windows: defer to the Windows app registry via Start-Process.
+    // For portable Chromium with no app-registry entry, set
+    // PLAYWRIGHT_MCP_EXECUTABLE_PATH (handled above).
+    spawn('powershell.exe', ['-NoProfile', '-Command', `Start-Process 'chrome' -ArgumentList '${url}'`], {
+      windowsHide: true,
+      detached: true,
+      shell: false,
       stdio: 'ignore',
     }).unref();
   } else {
