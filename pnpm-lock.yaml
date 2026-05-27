@@ -140,6 +140,9 @@ importers:
       zip-bundle:
         specifier: link:./bundles/zip
         version: link:bundles/zip
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
 
   packages/playwright-core/bundles/mcp:
     dependencies:

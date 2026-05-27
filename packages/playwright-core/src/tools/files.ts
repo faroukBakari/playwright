@@ -199,7 +199,7 @@ export function normalizePath(raw: string): string {
 
   // 3. Expand ~ to home directory
   if (p === '~' || p.startsWith('~/'))
-    p = path.join(os.homedir(), p.slice(1));
+    p = path.join(os.homedir(), p.slice(1)).replace(/\\/g, '/');
 
   // 4. Resolve relative paths against cwd
   if (!path.isAbsolute(p))

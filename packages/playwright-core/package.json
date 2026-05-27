@@ -17,7 +17,8 @@
   "dependencies": {
     "utils-bundle": "link:./bundles/utils",
     "mcp-bundle": "link:./bundles/mcp",
-    "zip-bundle": "link:./bundles/zip"
+    "zip-bundle": "link:./bundles/zip",
+    "zod": "^4.4.3"
   },
   "exports": {
     ".": {

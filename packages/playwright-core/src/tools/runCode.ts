@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+import * as os from 'node:os';
 import path from 'path';
 import vm from 'vm';
 
@@ -25,7 +26,7 @@ import { defineTabTool } from './tool';
 
 const codeSchema = z.object({
   code: z.string().describe(`A JavaScript function containing Playwright code to execute. It will be invoked with a single argument, page, which you can use for any page interaction. For example: \`async (page) => { await page.getByRole('button', { name: 'Submit' }).click(); return await page.title(); }\``),
-  filename: z.string().optional().describe('Filename to save the result to (written to /tmp/). If not provided, result is returned inline.'),
+  filename: z.string().optional().describe('Filename to save the result to (written to the OS temp dir). If not provided, result is returned inline.'),
 });
 
 const runCode = defineTabTool({
@@ -60,7 +61,7 @@ const runCode = defineTabTool({
       if (typeof result === 'string') {
         if (params.filename) {
           validateFilename(params.filename);
-          const filePath = path.join('/tmp', params.filename);
+          const filePath = path.join(os.tmpdir(), params.filename);
           await response.addFileResult(
               { fileName: filePath, relativeName: filePath, printableLink: `- [Result](${filePath})` },
               result

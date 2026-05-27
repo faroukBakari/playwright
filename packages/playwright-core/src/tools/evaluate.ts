@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+import * as os from 'node:os';
 import path from 'path';
 
 import { z } from '../mcpBundle';
@@ -27,7 +28,7 @@ const evaluateSchema = z.object({
   function: z.string().describe('() => { /* code */ } or (element) => { /* code */ } when element is provided'),
   element: z.string().optional().describe('Human-readable element description used to obtain permission to interact with the element'),
   ref: z.string().optional().describe('Exact target element reference from the page snapshot'),
-  filename: z.string().optional().describe('Filename to save the result to (written to /tmp/). If not provided, result is returned inline.'),
+  filename: z.string().optional().describe('Filename to save the result to (written to the OS temp dir). If not provided, result is returned inline.'),
 });
 
 const evaluate = defineTabTool({
@@ -60,7 +61,7 @@ const evaluate = defineTabTool({
       text = text.slice(0, maxLen) + `\n... [truncated: ${text.length} chars, limit ${maxLen}]`;
     if (params.filename) {
       validateFilename(params.filename);
-      const filePath = path.join('/tmp', params.filename);
+      const filePath = path.join(os.tmpdir(), params.filename);
       await response.addFileResult(
           { fileName: filePath, relativeName: filePath, printableLink: `- [Result](${filePath})` },
           text
