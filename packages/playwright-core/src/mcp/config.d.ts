@@ -241,6 +241,14 @@ export type Config = {
     infrastructure?: {
       /** Bridge HTTP timeout buffer above max budget (ms). Default: 5000 */
       bridgeBuffer?: number;
+      /**
+       * Streamable HTTP session-transport idle TTL (ms). When no request arrives
+       * within this window the transport closes, triggering disposal of the
+       * session-owned context. Set to 0 to disable (session persists until
+       * explicit close — appropriate when an external supervisor keeps the
+       * server alive across CC sessions). Default: 120000 (2 minutes).
+       */
+      sessionTransportIdleTTL?: number;
     };
   };
 

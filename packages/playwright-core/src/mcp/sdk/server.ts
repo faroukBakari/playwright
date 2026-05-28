@@ -218,14 +218,14 @@ function addServerListener(server: Server, event: 'close' | 'initialized', liste
   };
 }
 
-export async function start(serverBackendFactory: ServerBackendFactory, options: { host?: string; port?: number, allowedHosts?: string[], socketPath?: string } = {}) {
+export async function start(serverBackendFactory: ServerBackendFactory, options: { host?: string; port?: number, allowedHosts?: string[], socketPath?: string, sessionTransportIdleTTL?: number } = {}) {
   if (options.port === undefined) {
     enableStdinShutdown();  // arm stdin-EOF → graceful exit (prevents zombie processes)
     await connect(serverBackendFactory, new mcpBundle.StdioServerTransport(), false);
     return;
   }
 
-  const url = await startMcpHttpServer(options, serverBackendFactory, options.allowedHosts);
+  const url = await startMcpHttpServer(options, serverBackendFactory, options.allowedHosts, options.sessionTransportIdleTTL);
 
   const mcpConfig: any = { mcpServers: { } };
   mcpConfig.mcpServers[serverBackendFactory.nameInConfig] = {

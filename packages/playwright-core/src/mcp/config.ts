@@ -92,7 +92,7 @@ export const defaultConfig: FullConfig = {
   timeouts: {
     budget: { default: 5000, navigate: 15000, runCode: 30000 },
     playwright: { action: 5000, navigation: 30000, expect: 5000 },
-    infrastructure: { bridgeBuffer: 5000 },
+    infrastructure: { bridgeBuffer: 5000, sessionTransportIdleTTL: 120000 },
   },
   performance: {
     postActionDelay: 30,
@@ -181,7 +181,20 @@ export async function validateConfig(config: FullConfig): Promise<void> {
       missing.push('relay.backendDisposalTTL');
     if (missing.length > 0)
       throw new Error(`Missing required relay config: ${missing.join(', ')}. All relay fields are required in playwright-mcp.json.`);
+    // TTLs accept 0 (never expire — session/backend persists until explicit close)
+    // and any positive ms value. Negatives are nonsensical.
+    if (config.relay.sessionGraceTTL < 0)
+      throw new Error(`relay.sessionGraceTTL must be >= 0 (0 = never expire), got ${config.relay.sessionGraceTTL}.`);
+    if (config.relay.backendDisposalTTL < 0)
+      throw new Error(`relay.backendDisposalTTL must be >= 0 (0 = never expire), got ${config.relay.backendDisposalTTL}.`);
   }
+
+  // Session-transport idle TTL accepts 0 (never expire — appropriate when an
+  // external supervisor keeps the server alive across CC sessions) and any
+  // positive ms value. Negatives are nonsensical.
+  const sessionTransportIdleTTL = config.timeouts?.infrastructure?.sessionTransportIdleTTL;
+  if (sessionTransportIdleTTL != null && sessionTransportIdleTTL < 0)
+    throw new Error(`infrastructure.sessionTransportIdleTTL must be >= 0 (0 = never expire), got ${sessionTransportIdleTTL}.`);
 
   // Timeout cascade validation — budget must accommodate inner timeouts
   const b = config.timeouts?.budget;

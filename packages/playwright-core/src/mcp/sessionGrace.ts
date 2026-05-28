@@ -23,7 +23,7 @@ export interface GracedSession {
   cdpSessionId: string | null;
   targetInfo: any | null;
   tabId: number | null;
-  timer: ReturnType<typeof setTimeout>;
+  timer: ReturnType<typeof setTimeout> | null;
 }
 
 export class SessionGraceManager {
@@ -40,6 +40,11 @@ export class SessionGraceManager {
     if (cdpSessionId == null)
       return false;
     this.cancel(sessionId); // clear any existing grace for this sessionId
+    if (this._ttl === 0) {
+      this._graced.set(sessionId, { sessionId, cdpSessionId, targetInfo, tabId, timer: null });
+      debugLogger(`Session ${sessionId} entered persistent grace (TTL disabled)`);
+      return true;
+    }
     const timer = setTimeout(() => {
       const graced = this._graced.get(sessionId)!;
       this._graced.delete(sessionId);
@@ -55,7 +60,8 @@ export class SessionGraceManager {
     const graced = this._graced.get(sessionId);
     if (!graced)
       return null;
-    clearTimeout(graced.timer);
+    if (graced.timer !== null)
+      clearTimeout(graced.timer);
     this._graced.delete(sessionId);
     debugLogger(`Session ${sessionId} grace cancelled`);
     return graced;
@@ -64,7 +70,8 @@ export class SessionGraceManager {
   /** Cancel all graced sessions, calling onExpire for each. */
   cancelAll(onExpire?: (sessionId: string, graced: GracedSession) => void): void {
     for (const [sessionId, graced] of this._graced) {
-      clearTimeout(graced.timer);
+      if (graced.timer !== null)
+        clearTimeout(graced.timer);
       if (onExpire)
         onExpire(sessionId, graced);
     }

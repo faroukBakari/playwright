@@ -175,20 +175,27 @@ export function decorateMCPCommand(command: Command, version: string) {
               serverLog('lifecycle', `extension mode: session disconnected (active: ${activeSessionCount})`);
 
               if (activeSessionCount === 0 && sharedBackend) {
-                // Defer disposal — per-session grace may reconnect within TTL
-                serverLog('lifecycle', `extension mode: last session gone, deferring backend disposal (${backendGraceTTL}ms)`);
-                backendDisposalTimer = setTimeout(async () => {
-                  backendDisposalTimer = null;
-                  if (activeSessionCount === 0 && sharedBackend) {
-                    serverLog('lifecycle', 'extension mode: backend grace expired, disposing shared backend');
-                    await sharedBackend.dispose();
-                    sharedBackend = undefined;
-                  }
-                }, backendGraceTTL);
+                if (backendGraceTTL <= 0) {
+                  serverLog('lifecycle', 'extension mode: backend disposal disabled (TTL=0) — backend persists until process exit');
+                } else {
+                  // Defer disposal — per-session grace may reconnect within TTL
+                  serverLog('lifecycle', `extension mode: last session gone, deferring backend disposal (${backendGraceTTL}ms)`);
+                  backendDisposalTimer = setTimeout(async () => {
+                    backendDisposalTimer = null;
+                    if (activeSessionCount === 0 && sharedBackend) {
+                      serverLog('lifecycle', 'extension mode: backend grace expired, disposing shared backend');
+                      await sharedBackend.dispose();
+                      sharedBackend = undefined;
+                    }
+                  }, backendGraceTTL);
+                }
               }
             },
           };
-          await mcpServer.start(serverBackendFactory, config.server);
+          await mcpServer.start(serverBackendFactory, {
+            ...config.server,
+            sessionTransportIdleTTL: config.timeouts?.infrastructure?.sessionTransportIdleTTL,
+          });
           return;
         }
 
@@ -221,6 +228,9 @@ export function decorateMCPCommand(command: Command, version: string) {
             await browserContext.browser()!.close().catch(() => { });
           }
         };
-        await mcpServer.start(factory, config.server);
+        await mcpServer.start(factory, {
+          ...config.server,
+          sessionTransportIdleTTL: config.timeouts?.infrastructure?.sessionTransportIdleTTL,
+        });
       });
 }

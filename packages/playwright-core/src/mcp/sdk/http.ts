@@ -107,11 +107,12 @@ function readSessionState(): string | null {
 export async function startMcpHttpServer(
   config: { host?: string, port?: number },
   serverBackendFactory: ServerBackendFactory,
-  allowedHosts?: string[]
+  allowedHosts?: string[],
+  sessionTransportIdleTTL?: number,
 ): Promise<string> {
   const httpServer = createHttpServer();
   await startHttpServer(httpServer, config);
-  return await installHttpTransport(httpServer, serverBackendFactory, allowedHosts);
+  return await installHttpTransport(httpServer, serverBackendFactory, allowedHosts, sessionTransportIdleTTL);
 }
 
 export function addressToString(address: string | net.AddressInfo | null, options: {
@@ -127,7 +128,7 @@ export function addressToString(address: string | net.AddressInfo | null, option
   return `${options.protocol}://${host}:${address.port}`;
 }
 
-export async function installHttpTransport(httpServer: http.Server, serverBackendFactory: ServerBackendFactory, allowedHosts?: string[]) {
+export async function installHttpTransport(httpServer: http.Server, serverBackendFactory: ServerBackendFactory, allowedHosts?: string[], sessionTransportIdleTTL?: number) {
   const url = addressToString(httpServer.address(), { protocol: 'http', normalizeLoopback: true });
   const host = new URL(url).host;
   allowedHosts = (allowedHosts || [host]).map(h => h.toLowerCase());
@@ -141,7 +142,9 @@ export async function installHttpTransport(httpServer: http.Server, serverBacken
   if (persistedSessionId)
     serverLog('session', `Loaded persisted session ID: ${persistedSessionId}`);
 
-  // Idle TTL: auto-exit after inactivity. Default 30min. Set to 0 to disable.
+  // Process-idle auto-exit. Default 30min. PLAYWRIGHT_MCP_IDLE_TTL=0 disables
+  // the timer entirely — process persists until explicit signal (appropriate
+  // when an external supervisor keeps the server alive across CC sessions).
   let lastActivity = Date.now();
   const idleTimeoutMs = parseInt(process.env.PLAYWRIGHT_MCP_IDLE_TTL || '1800', 10) * 1000;
   if (idleTimeoutMs > 0) {
@@ -154,8 +157,13 @@ export async function installHttpTransport(httpServer: http.Server, serverBacken
       }
     }, 60_000).unref();
   } else {
-    serverLog('lifecycle', 'idle TTL disabled');
+    serverLog('lifecycle', 'idle TTL disabled (PLAYWRIGHT_MCP_IDLE_TTL=0)');
   }
+
+  // Resolve session-transport idle TTL. 0 disables per-session timers.
+  const resolvedSessionTransportIdleTTL = sessionTransportIdleTTL ?? DEFAULT_SESSION_TRANSPORT_IDLE_TTL;
+  if (resolvedSessionTransportIdleTTL <= 0)
+    serverLog('lifecycle', 'session-transport idle TTL disabled (sessionTransportIdleTTL=0)');
 
   httpServer.on('request', async (req, res) => {
     lastActivity = Date.now();
@@ -203,7 +211,7 @@ export async function installHttpTransport(httpServer: http.Server, serverBacken
     if (url.pathname.startsWith('/sse'))
       await handleSSE(serverBackendFactory, req, res, url, sseSessions);
     else
-      await handleStreamable(serverBackendFactory, req, res, streamableSessions, persistedSessionId, id => { persistedSessionId = id; });
+      await handleStreamable(serverBackendFactory, req, res, streamableSessions, persistedSessionId, id => { persistedSessionId = id; }, resolvedSessionTransportIdleTTL);
   });
 
   return url;
@@ -248,10 +256,14 @@ async function handleSSE(serverBackendFactory: ServerBackendFactory, req: http.I
 // forever (no persistent connection to detect client departure).
 // 2 minutes: must exceed the longest agent thinking gap between tool calls.
 // Haiku: 30-60s between calls. Sonnet/Opus: up to 90s. 120s covers all tiers.
-const SESSION_IDLE_TTL = 120_000;
+// Set sessionTransportIdleTTL=0 in config to disable (session persists until
+// explicit close).
+const DEFAULT_SESSION_TRANSPORT_IDLE_TTL = 120_000;
 const sessionIdleTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-function resetSessionIdleTimer(sessionId: string, sessions: Map<string, StreamableHTTPServerTransport>) {
+function resetSessionIdleTimer(sessionId: string, sessions: Map<string, StreamableHTTPServerTransport>, ttlMs: number) {
+  if (ttlMs <= 0)
+    return;
   const existing = sessionIdleTimers.get(sessionId);
   if (existing)
     clearTimeout(existing);
@@ -260,9 +272,9 @@ function resetSessionIdleTimer(sessionId: string, sessions: Map<string, Streamab
     const transport = sessions.get(sessionId);
     if (!transport)
       return;
-    serverLog('lifecycle', `session idle timeout (${SESSION_IDLE_TTL}ms): ${sessionId}`);
+    serverLog('lifecycle', `session idle timeout (${ttlMs}ms): ${sessionId}`);
     await transport.close();
-  }, SESSION_IDLE_TTL));
+  }, ttlMs));
 }
 
 async function handleStreamable(
@@ -272,12 +284,13 @@ async function handleStreamable(
   sessions: Map<string, StreamableHTTPServerTransport>,
   persistedSessionId: string | null,
   setPersistedSessionId: (id: string | null) => void,
+  sessionTransportIdleTTL: number,
 ) {
   const sessionId = req.headers['mcp-session-id'] as string | undefined;
   if (sessionId) {
     const transport = sessions.get(sessionId);
     if (transport) {
-      resetSessionIdleTimer(sessionId, sessions);
+      resetSessionIdleTimer(sessionId, sessions, sessionTransportIdleTTL);
       return await transport.handleRequest(req, res);
     }
 
@@ -344,7 +357,7 @@ async function handleStreamable(
     await transport.handleRequest(req, res);
     // Start the idle timer after the first request is processed
     if (transport.sessionId)
-      resetSessionIdleTimer(transport.sessionId, sessions);
+      resetSessionIdleTimer(transport.sessionId, sessions, sessionTransportIdleTTL);
     return;
   }
 
