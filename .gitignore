@@ -15,7 +15,7 @@ packages/*/lib/
 # Dev-mode symlinks: src/*BundleImpl → bundles/*/out (tsx needs these)
 /packages/playwright-core/src/utilsBundleImpl
 /packages/playwright-core/src/mcpBundleImpl
-/packages/playwright-core/src/zipBundleImpl.js
+/packages/playwright-core/src/zipBundleImpl
 drivers/
 .android-sdk/
 .gradle/
