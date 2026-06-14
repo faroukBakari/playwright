@@ -42,6 +42,11 @@ export type ProtocolRequest = {
   sessionId?: string;
 };
 
+export type ProtocolNotification = {
+  method: string;
+  params: any;
+};
+
 export type ProtocolResponse = {
   id?: number;
   method?: string;
@@ -54,7 +59,7 @@ export type ProtocolResponse = {
 };
 
 export interface ConnectionTransport {
-  send(s: ProtocolRequest): void;
+  send(s: ProtocolRequest | ProtocolNotification): void;
   close(): void;  // Note: calling close is expected to issue onclose at some point.
   onmessage?: (message: ProtocolResponse) => void,
   onclose?: (reason?: string) => void,
@@ -185,7 +190,7 @@ export class WebSocketTransport implements ConnectionTransport {
     this._ws.addEventListener('error', error => this._progress?.log(`<ws error> ${logUrl} ${error.type} ${error.message}`));
   }
 
-  send(message: ProtocolRequest) {
+  send(message: ProtocolRequest | ProtocolNotification) {
     this._ws.send(JSON.stringify(message));
   }
 

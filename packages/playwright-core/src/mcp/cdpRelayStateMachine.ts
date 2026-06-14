@@ -94,6 +94,7 @@ export class CDPRelayStateMachine {
     if (this._graceTimer) {
       clearTimeout(this._graceTimer);
       this._graceTimer = null;
+      serverLog('lifecycle', `WS grace cancelled — client reconnected within ${this._graceTTL}ms window`);
     }
   }
 
@@ -121,6 +122,7 @@ export class CDPRelayStateMachine {
     if (this._extensionGraceTimer) {
       clearTimeout(this._extensionGraceTimer);
       this._extensionGraceTimer = null;
+      serverLog('lifecycle', `extension WS grace cancelled — reconnected within ${this._extensionGraceTTL}ms window`);
     }
   }
 

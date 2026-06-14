@@ -2,10 +2,10 @@
  * Shared utilities for tab lifecycle tools (attachTab, createTab).
  */
 
+import { serverLog } from '../mcp/log';
 import type { Context } from './context';
 import type { Tab } from './tab';
 import type { Page } from '../client/page';
-import { serverLog } from '../mcp/log';
 
 /**
  * Wait for a new Page to materialize via CDP event routing.

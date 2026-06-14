@@ -15,6 +15,7 @@
  */
 
 import { debug } from '../utilsBundle';
+import { serverLog } from './log';
 
 const debugLogger = debug('pw:mcp:relay:grace');
 
@@ -43,6 +44,7 @@ export class SessionGraceManager {
     if (this._ttl === 0) {
       this._graced.set(sessionId, { sessionId, cdpSessionId, targetInfo, tabId, timer: null });
       debugLogger(`Session ${sessionId} entered persistent grace (TTL disabled)`);
+      serverLog('session', `per-session grace entered (persistent): sessionId=${sessionId} ttl=0`);
       return true;
     }
     const timer = setTimeout(() => {
@@ -52,6 +54,7 @@ export class SessionGraceManager {
     }, this._ttl);
     this._graced.set(sessionId, { sessionId, cdpSessionId, targetInfo, tabId, timer });
     debugLogger(`Session ${sessionId} entered per-session grace (${this._ttl}ms)`);
+    serverLog('session', `per-session grace entered: sessionId=${sessionId} ttl=${this._ttl}ms`);
     return true;
   }
 
@@ -64,6 +67,7 @@ export class SessionGraceManager {
       clearTimeout(graced.timer);
     this._graced.delete(sessionId);
     debugLogger(`Session ${sessionId} grace cancelled`);
+    serverLog('session', `per-session grace cancelled: sessionId=${sessionId} — client reconnected`);
     return graced;
   }
 

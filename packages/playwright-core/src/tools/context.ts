@@ -27,6 +27,7 @@ import { selectors } from '../inprocess';
 import { Tab } from './tab';
 import { relayHttpUrl } from '../mcp/extensionContextFactory';
 import { nullPerfLog } from './perfLog';
+import { serverLog } from '../mcp/log';
 
 import type * as playwright from '../..';
 import type { SessionLog } from './sessionLog';
@@ -219,17 +220,28 @@ export class Context {
       if (this.relayHttpUrl) {
         // Extension mode with deferred tab creation: request a tab via sideband.
         // The relay sends Target.attachedToTarget which triggers _onPageCreated.
-        await fetch(`${this.relayHttpUrl}/tabs/create`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sessionId: this.id }),
-          signal: AbortSignal.timeout(15000),
-        });
+        try {
+          await fetch(`${this.relayHttpUrl}/tabs/create`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sessionId: this.id }),
+            signal: AbortSignal.timeout(15000),
+          });
+        } catch (e: unknown) {
+          if (e instanceof Error && e.name === 'AbortError')
+            serverLog('warn', `ensureTab: sideband /tabs/create timed out after 15000ms, sessionId=${this.id}`);
+          throw e;
+        }
         // Wait for the page to materialize via CDP event
+        let timeoutId: ReturnType<typeof setTimeout>;
         await Promise.race([
-          this._firstPagePromise,
-          new Promise<void>((_, reject) =>
-            setTimeout(() => reject(new Error('Deferred tab creation: timed out waiting for page')), 15000)),
+          this._firstPagePromise!.then(() => clearTimeout(timeoutId)),
+          new Promise<void>((_, reject) => {
+            timeoutId = setTimeout(() => {
+              serverLog('warn', `ensureTab: page did not materialize within 15000ms, sessionId=${this.id}`);
+              reject(new Error('Deferred tab creation: timed out waiting for page'));
+            }, 15000);
+          }),
         ]);
       } else {
         await browserContext.newPage();
@@ -432,8 +444,8 @@ export class Context {
     const registryTabs: { url: string; debugger: { attached: boolean }; lastSeen: number }[] = data.tabs ?? [];
     // Find registry entries with attached debugger, sorted by most recent
     const attached = registryTabs
-      .filter(t => t.debugger.attached)
-      .sort((a, b) => b.lastSeen - a.lastSeen);
+        .filter(t => t.debugger.attached)
+        .sort((a, b) => b.lastSeen - a.lastSeen);
     for (const entry of attached) {
       const match = this._tabs.find(t => t.page.url() === entry.url);
       if (match) {

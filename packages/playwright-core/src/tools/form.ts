@@ -39,7 +39,7 @@ const fillForm = defineTabTool({
       ...snapshotOptionsSchema.shape,
     }),
     type: 'input',
-    minBudget: (rawArgs) => {
+    minBudget: rawArgs => {
       const fieldCount = Array.isArray(rawArgs.fields) ? rawArgs.fields.length : 1;
       const hasSubmit = typeof rawArgs.submitRef === 'string';
       // Per-field: 800ms covers action + settle (P95 browser_type ~150ms with headroom)

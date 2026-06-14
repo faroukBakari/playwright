@@ -96,9 +96,10 @@ export type URLPattern = {
   username: string;
 };
 
-// @ts-expect-error URLPattern is not in @types/node yet
 // eslint-disable-next-line no-restricted-globals
-export const isURLPattern = (v: unknown): v is URLPattern => typeof globalThis.URLPattern === 'function' && v instanceof globalThis.URLPattern;
+const _URLPatternCtor = (globalThis as typeof globalThis & { URLPattern?: new (init: Omit<URLPattern, 'test'>) => URLPattern }).URLPattern;
+
+export const isURLPattern = (v: unknown): v is URLPattern => typeof _URLPatternCtor === 'function' && v instanceof _URLPatternCtor;
 
 export function serializeURLPattern(v: URLPattern) {
   return {
@@ -128,14 +129,10 @@ export function serializeURLMatch(match: URLMatch): SerializedURLMatch | undefin
 
 function deserializeURLPattern(v: ReturnType<typeof serializeURLPattern>): URLPattern | ((url: URL) => boolean) {
   // Client is on Node 24+ and can use URLPattern, Server is not. Let's match all URLs on the server, they'll be filtered again on the client.
-  // @ts-expect-error URLPattern is not in @types/node yet
-  // eslint-disable-next-line no-restricted-globals
-  if (typeof globalThis.URLPattern !== 'function')
+  if (typeof _URLPatternCtor !== 'function')
     return () => true;
 
-  // @ts-expect-error URLPattern is not in @types/node yet
-  // eslint-disable-next-line no-restricted-globals
-  return new globalThis.URLPattern({
+  return new _URLPatternCtor({
     hash: v.hash,
     hostname: v.hostname,
     password: v.password,

@@ -34,12 +34,12 @@ const verifyElement = defineTabTool({
 
   handle: async (tab, params, response) => {
     const results = await Promise.all(
-      tab.page.frames().map(async frame => {
-        const locator = frame.getByRole(params.role as any, { name: params.accessibleName });
-        if (await locator.count() > 0)
-          return { locator, frame };
-        return null;
-      })
+        tab.page.frames().map(async frame => {
+          const locator = frame.getByRole(params.role as any, { name: params.accessibleName });
+          if (await locator.count() > 0)
+            return { locator, frame };
+          return null;
+        })
     );
     const match = results.find(r => r !== null);
     if (match) {
@@ -66,12 +66,12 @@ const verifyText = defineTabTool({
 
   handle: async (tab, params, response) => {
     const results = await Promise.all(
-      tab.page.frames().map(async frame => {
-        const locator = frame.getByText(params.text).filter({ visible: true });
-        if (await locator.count() > 0)
-          return { locator, frame };
-        return null;
-      })
+        tab.page.frames().map(async frame => {
+          const locator = frame.getByText(params.text).filter({ visible: true });
+          if (await locator.count() > 0)
+            return { locator, frame };
+          return null;
+        })
     );
     const match = results.find(r => r !== null);
     if (match) {

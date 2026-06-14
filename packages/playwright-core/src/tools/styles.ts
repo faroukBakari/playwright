@@ -36,14 +36,14 @@ const getStyles = defineTabTool({
   handle: async (tab, params, response) => {
     const { locator } = await tab.refLocator(params);
     const result = await locator.evaluate(
-      (el: Element, props: string[]) => {
-        const styles = window.getComputedStyle(el);
-        const out: Record<string, string> = {};
-        for (const p of props)
-          out[p] = styles.getPropertyValue(p);
-        return out;
-      },
-      params.properties
+        (el: Element, props: string[]) => {
+          const styles = window.getComputedStyle(el);
+          const out: Record<string, string> = {};
+          for (const p of props)
+            out[p] = styles.getPropertyValue(p);
+          return out;
+        },
+        params.properties
     );
     response.addTextResult(JSON.stringify(result, null, 2));
   },

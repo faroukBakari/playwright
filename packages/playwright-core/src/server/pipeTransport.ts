@@ -18,7 +18,7 @@
 import { makeWaitForNextTask } from '../utils';
 import { debugLogger } from './utils/debugLogger';
 
-import type { ConnectionTransport, ProtocolRequest, ProtocolResponse } from './transport';
+import type { ConnectionTransport, ProtocolNotification, ProtocolRequest, ProtocolResponse } from './transport';
 
 export class PipeTransport implements ConnectionTransport {
   private _pipeRead: NodeJS.ReadableStream;
@@ -54,7 +54,7 @@ export class PipeTransport implements ConnectionTransport {
       onclose();
   }
 
-  send(message: ProtocolRequest) {
+  send(message: ProtocolRequest | ProtocolNotification) {
     if (this._closed)
       throw new Error('Pipe has been closed');
     this._pipeWrite.write(JSON.stringify(message));

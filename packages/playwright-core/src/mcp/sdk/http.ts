@@ -345,6 +345,7 @@ async function handleStreamable(
       if (timer) {
         clearTimeout(timer);
         sessionIdleTimers.delete(transport.sessionId);
+        serverLog('lifecycle', `session idle timer cancelled (transport closed): ${transport.sessionId}`);
       }
       sessions.delete(transport.sessionId);
       // Don't delete session state — it must survive server restarts for

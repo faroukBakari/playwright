@@ -143,12 +143,14 @@ export class SnapshotOrchestrator {
                 for (const iframe of document.querySelectorAll('iframe')) {
                   try {
                     root = iframe.contentDocument?.querySelector(rootSelector) ?? null;
-                    if (root) break;
+                    if (root)
+                      break;
                   } catch { /* cross-origin — skip */ }
                 }
               }
             }
-            if (!root) root = document.body;
+            if (!root)
+              root = document.body;
             await new Promise<void>(resolve => {
               let quietTimer: ReturnType<typeof setTimeout>;
               const maxTimer = setTimeout(() => {
@@ -167,12 +169,14 @@ export class SnapshotOrchestrator {
                     }
                     return m.removedNodes.length > 0;
                   }
-                  if (m.type === 'attributes')
+                  if (m.type === 'attributes') {
                     return !m.attributeName?.startsWith('data-analytics')
                         && !m.attributeName?.startsWith('data-track');
+                  }
                   return true;
                 });
-                if (!meaningful) return;
+                if (!meaningful)
+                  return;
                 clearTimeout(quietTimer);
                 quietTimer = setTimeout(() => {
                   observer.disconnect(); clearTimeout(maxTimer); resolve();
@@ -213,7 +217,7 @@ export class SnapshotOrchestrator {
         target_ms: this._context.config.timeouts?.budget?.default ?? 5000,
         interactableOnly: !!interactableOnly,
         rootSelector: rootSelector || undefined,
-      }, () => this._page._snapshotForAI({ track: `response-${options?.clientId ?? this._context.id}`, interactableOnly, includeUrls, rootSelector }), (result) => ({
+      }, () => this._page._snapshotForAI({ track: `response-${options?.clientId ?? this._context.id}`, interactableOnly, includeUrls, rootSelector }), result => ({
         full_chars: result?.full.length ?? 0,
         diff_chars: result?.incremental?.length,
       }));

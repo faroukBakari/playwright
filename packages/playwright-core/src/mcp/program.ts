@@ -183,7 +183,7 @@ export function decorateMCPCommand(command: Command, version: string) {
                   backendDisposalTimer = setTimeout(async () => {
                     backendDisposalTimer = null;
                     if (activeSessionCount === 0 && sharedBackend) {
-                      serverLog('lifecycle', 'extension mode: backend grace expired, disposing shared backend');
+                      serverLog('lifecycle', `extension mode: backend grace expired after ${backendGraceTTL}ms, disposing shared backend`);
                       await sharedBackend.dispose();
                       sharedBackend = undefined;
                     }

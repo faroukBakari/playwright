@@ -19,7 +19,6 @@ import { debug } from '../utilsBundle';
 import { defineTool } from './tool';
 import { snapshotOptionsSchema } from './snapshot';
 
-import type { Context } from './context';
 import type { Response } from './response';
 import type { Tab } from './tab';
 
@@ -47,7 +46,7 @@ function resolveTimeout(tab: Tab, params: WaitParams): number {
     ? Math.min(params.timeout * 1000, maxMs)
     : defaultMs;
   waitDebug('resolveTimeout: default=%d max=%d requested=%s resolved=%d',
-    defaultMs, maxMs, params.timeout ?? 'none', resolved);
+      defaultMs, maxMs, params.timeout ?? 'none', resolved);
   return resolved;
 }
 
@@ -82,7 +81,7 @@ async function handleText(tab: Tab, params: WaitParams, response: Response, time
   const text = params.text!;
 
   waitDebug('text: searching for "%s" (fastPoll: %dx%dms, locatorTimeout: %dms)',
-    text, pollRetries, pollInterval, timeoutMs);
+      text, pollRetries, pollInterval, timeoutMs);
 
   // Stage 1: Fast-poll via page.evaluate (avoids locator overhead)
   let found = false;
@@ -259,7 +258,7 @@ async function handleNetworkIdle(tab: Tab, _params: WaitParams, response: Respon
     new Promise<'timeout'>(resolve => {
       timer = setTimeout(() => resolve('timeout'), timeoutMs);
     }),
-  ]), (r) => ({ raceResult: r }));
+  ]), r => ({ raceResult: r }));
 
   clearTimeout(timer!);
 
@@ -310,11 +309,11 @@ On timeout, returns current page state — you decide the next step.`,
       url: z.string().optional().describe('URL glob pattern to wait for (e.g. "**/dashboard")'),
       selector: z.string().optional().describe('CSS selector to wait for'),
       selectorState: z.enum(['visible', 'hidden', 'attached', 'detached']).optional()
-        .describe('Selector state to wait for (default: visible)'),
+          .describe('Selector state to wait for (default: visible)'),
       function: z.string().optional()
-        .describe('JavaScript expression evaluated in browser. Must return truthy when done. Last resort — prefer text or selector.'),
+          .describe('JavaScript expression evaluated in browser. Must return truthy when done. Last resort — prefer text or selector.'),
       networkIdle: z.boolean().optional()
-        .describe('Wait until no network requests for 500ms. May hang on analytics-heavy sites.'),
+          .describe('Wait until no network requests for 500ms. May hang on analytics-heavy sites.'),
       timeout: z.coerce.number().optional().describe('Override timeout in seconds (default 3, max configurable via waitMaxTimeout)'),
       ...snapshotOptionsSchema.shape,
     }),

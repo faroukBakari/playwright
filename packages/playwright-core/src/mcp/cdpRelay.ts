@@ -384,6 +384,7 @@ export class CDPRelayServer {
           (expiredSessionId: string, gracedData: GracedSession) => {
           // Grace expired — NOW send detachTab
             debugLogger(`Per-session grace expired for ${expiredSessionId}`);
+            serverLog('warn', `per-session grace expired: sessionId=${expiredSessionId} tabId=${gracedData.tabId ?? 'null'} — session permanently disposed`);
             if (this._extensionConnection)
               this._extensionConnection.send('detachTab', { sessionId: expiredSessionId }).catch(e => serverLog('warn', `detachTab failed for expired session ${expiredSessionId}`, e));
 

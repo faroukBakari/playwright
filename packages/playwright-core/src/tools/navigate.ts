@@ -146,7 +146,7 @@ const navigateAndWait = defineTool({
 
     // Phase 2: Wait for condition (if any specified)
     const conditionKeys = (['waitForText', 'waitForSelector', 'waitForUrl'] as const)
-      .filter(k => params[k] !== undefined);
+        .filter(k => params[k] !== undefined);
 
     if (conditionKeys.length > 1)
       throw new Error(`Only one wait condition per call, got: ${conditionKeys.join(', ')}`);

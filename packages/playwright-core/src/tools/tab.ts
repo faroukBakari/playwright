@@ -26,10 +26,12 @@ import { ModalState } from './tool';
 import { handleDialog } from './dialogs';
 import { uploadFile } from './files';
 import { disposeAll } from '../client/disposable';
-import { ArtifactCollector, messageToConsoleMessage, pageErrorToConsoleMessage, type ConsoleMessageLevel } from './artifactCollector';
+import { ArtifactCollector, messageToConsoleMessage, pageErrorToConsoleMessage } from './artifactCollector';
 import { SnapshotOrchestrator } from './snapshotOrchestrator';
-import type { TabSnapshot } from './snapshotOrchestrator';
 import { RefResolver } from './refResolver';
+import { serverLog } from '../mcp/log';
+import type { ConsoleMessageLevel } from './artifactCollector';
+import type { TabSnapshot } from './snapshotOrchestrator';
 
 export { renderModalStates, shouldIncludeMessage, consoleLevelForMessageType } from './artifactCollector';
 export type { ConsoleMessage, ConsoleMessageLocation, ConsoleMessageLevel, EventEntry } from './artifactCollector';
@@ -104,14 +106,15 @@ export class Tab extends EventEmitter<TabEventsInterface> {
     this._initializedPromise = initBudget === Infinity
       ? this._initialize()
       : Promise.race([
-          this._initialize(),
-          new Promise<void>((_, reject) =>
-            setTimeout(() => reject(new Error('Tab initialization timed out')), initBudget)
-          ),
-        ]).catch(e => {
-          debug('pw:tools:error')('Tab init failed:', e.message);
-          // Swallow — init failure is non-fatal, snapshot will degrade gracefully
-        });
+        this._initialize(),
+        new Promise<void>((_, reject) =>
+          setTimeout(() => reject(new Error('Tab initialization timed out')), initBudget)
+        ),
+      ]).catch(e => {
+        debug('pw:tools:error')('Tab init failed:', e.message);
+        serverLog('warn', `tab init timed out: ${e.message}, sessionId=${this.context.id}`);
+        // Swallow — init failure is non-fatal, snapshot will degrade gracefully
+      });
     this._actionTimeoutCeiling = context.config.timeouts?.playwright?.action;
     this._navigationTimeoutCeiling = context.config.timeouts?.playwright?.navigation;
     this._expectTimeoutCeiling = context.config.timeouts?.playwright?.expect;
@@ -356,7 +359,7 @@ export class Tab extends EventEmitter<TabEventsInterface> {
       }
 
       await callOnPageNoTrace(this.page, page => {
-        return page.evaluate((ms) => new Promise(f => setTimeout(f, ms)), time).catch(() => {});
+        return page.evaluate(ms => new Promise(f => setTimeout(f, ms)), time).catch(() => {});
       });
     });
   }

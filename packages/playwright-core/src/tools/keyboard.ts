@@ -90,7 +90,7 @@ const type = defineTabTool({
     description: 'Type text into editable element. Returns a snapshot after typing.',
     inputSchema: typeSchema,
     type: 'input',
-    minBudget: (rawArgs) => {
+    minBudget: rawArgs => {
       if (!rawArgs.slowly)
         return 0;  // Fast path: single fill(), no issue at default budget
       const textLen = typeof rawArgs.text === 'string' ? rawArgs.text.length : 0;
