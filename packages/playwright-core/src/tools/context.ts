@@ -314,6 +314,13 @@ export class Context {
 
     if (this._currentTab === tab)
       this._currentTab = this._tabs[Math.min(index, this._tabs.length - 1)];
+
+    if (this._tabs.length === 0) {
+      serverLog('lifecycle', `last tab closed — page gate reset, sessionId=${this.id}`);
+      this._firstPagePromise = new Promise<void>(resolve => {
+        this._firstPageResolve = resolve;
+      });
+    }
   }
 
   routes(): RouteEntry[] {

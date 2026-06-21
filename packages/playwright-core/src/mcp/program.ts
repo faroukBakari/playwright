@@ -126,6 +126,10 @@ export function decorateMCPCommand(command: Command, version: string) {
             const browser = await browserPromise;
             browser.on('disconnected', () => {
               serverLog('lifecycle', `extension mode: browser disconnected (sessionId=${sessionId ?? 'default'})`);
+              if (sharedBackend && sessionId) {
+                sharedBackend.removeContext(sessionId).catch(e =>
+                  serverLog('warn', `failed to remove context after disconnect (sessionId=${sessionId})`, e));
+              }
             });
             return browser.contexts()[0];
           };
