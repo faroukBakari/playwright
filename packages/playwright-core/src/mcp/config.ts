@@ -89,29 +89,10 @@ export const defaultConfig: FullConfig = {
     isolated: false,
   },
   server: {},
+  codegen: 'none' as const,
   timeouts: {
     budget: { default: 5000, navigate: 15000, runCode: 30000 },
     infrastructure: { sessionTransportIdleTTL: 120000 },
-  },
-  performance: {
-    postActionDelay: 30,
-    postSettlementDelay: 10,
-    networkRaceTimeout: 3000,
-    navigationLoadState: 'domcontentloaded' as const,
-    navigationLoadTimeout: 5000,
-    postNavigateLoadState: 'domcontentloaded' as const,
-    postNavigateLoadTimeout: 3000,
-    waitFastPollInterval: 200,
-    waitFastPollRetries: 5,
-    waitDefaultTimeout: 3000,
-    waitMaxTimeout: 30000,
-  },
-  snapshot: {
-    settleMode: 'quick' as const,
-    settleQuietMs: 150,
-    gatesEnabled: true,
-    gateTimeoutMs: 2000,
-    waitForTimeout: 3000,
   },
 };
 
@@ -373,21 +354,6 @@ export function configFromEnv(): Config & { configFile?: string } {
   const snapshotInteractableOnly = envToBoolean(process.env.PLAYWRIGHT_MCP_SNAPSHOT_INTERACTABLE_ONLY);
   if (snapshotInteractableOnly !== undefined)
     config.snapshot = { ...config.snapshot, interactableOnly: snapshotInteractableOnly };
-  const snapshotSettleMode = process.env.PLAYWRIGHT_MCP_SNAPSHOT_SETTLE_MODE;
-  if (snapshotSettleMode !== undefined)
-    config.snapshot = { ...config.snapshot, settleMode: enumParser<'none' | 'quick' | 'thorough'>('--snapshot-settle-mode', ['none', 'quick', 'thorough'], snapshotSettleMode) };
-  const snapshotSettleQuietMs = numberParser(process.env.PLAYWRIGHT_MCP_SNAPSHOT_SETTLE_QUIET_MS);
-  if (snapshotSettleQuietMs !== undefined)
-    config.snapshot = { ...config.snapshot, settleQuietMs: snapshotSettleQuietMs };
-  const snapshotGatesEnabled = envToBoolean(process.env.PLAYWRIGHT_MCP_SNAPSHOT_GATES_ENABLED);
-  if (snapshotGatesEnabled !== undefined)
-    config.snapshot = { ...config.snapshot, gatesEnabled: snapshotGatesEnabled };
-  const snapshotGateTimeoutMs = numberParser(process.env.PLAYWRIGHT_MCP_SNAPSHOT_GATE_TIMEOUT_MS);
-  if (snapshotGateTimeoutMs !== undefined)
-    config.snapshot = { ...config.snapshot, gateTimeoutMs: snapshotGateTimeoutMs };
-  const snapshotWaitForTimeout = numberParser(process.env.PLAYWRIGHT_MCP_SNAPSHOT_WAIT_FOR_TIMEOUT);
-  if (snapshotWaitForTimeout !== undefined)
-    config.snapshot = { ...config.snapshot, waitForTimeout: snapshotWaitForTimeout };
   const snapshotIncludeUrls = envToBoolean(process.env.PLAYWRIGHT_MCP_SNAPSHOT_INCLUDE_URLS);
   if (snapshotIncludeUrls !== undefined)
     config.snapshot = { ...config.snapshot, includeUrls: snapshotIncludeUrls };
@@ -401,44 +367,6 @@ export function configFromEnv(): Config & { configFile?: string } {
   const maxResponseChars = numberParser(process.env.PLAYWRIGHT_MCP_MAX_RESPONSE_CHARS);
   if (maxResponseChars !== undefined)
     config.maxResponseChars = maxResponseChars;
-
-  // Performance env var overrides (not routed through CLIOptions)
-  const perfOverrides: NonNullable<Config['performance']> = {};
-  const perfPostAction = numberParser(process.env.PLAYWRIGHT_MCP_PERF_POST_ACTION_DELAY);
-  if (perfPostAction !== undefined)
-    perfOverrides.postActionDelay = perfPostAction;
-  const perfPostSettlement = numberParser(process.env.PLAYWRIGHT_MCP_PERF_POST_SETTLEMENT_DELAY);
-  if (perfPostSettlement !== undefined)
-    perfOverrides.postSettlementDelay = perfPostSettlement;
-  const perfNetworkRace = numberParser(process.env.PLAYWRIGHT_MCP_PERF_NETWORK_RACE_TIMEOUT);
-  if (perfNetworkRace !== undefined)
-    perfOverrides.networkRaceTimeout = perfNetworkRace;
-  const perfNavLoadState = envToString(process.env.PLAYWRIGHT_MCP_PERF_NAV_LOAD_STATE);
-  if (perfNavLoadState === 'load' || perfNavLoadState === 'domcontentloaded')
-    perfOverrides.navigationLoadState = perfNavLoadState;
-  const perfNavLoadTimeout = numberParser(process.env.PLAYWRIGHT_MCP_PERF_NAV_LOAD_TIMEOUT);
-  if (perfNavLoadTimeout !== undefined)
-    perfOverrides.navigationLoadTimeout = perfNavLoadTimeout;
-  const perfPostNavLoadState = envToString(process.env.PLAYWRIGHT_MCP_PERF_POST_NAV_LOAD_STATE);
-  if (perfPostNavLoadState === 'load' || perfPostNavLoadState === 'domcontentloaded')
-    perfOverrides.postNavigateLoadState = perfPostNavLoadState;
-  const perfPostNavLoadTimeout = numberParser(process.env.PLAYWRIGHT_MCP_PERF_POST_NAV_LOAD_TIMEOUT);
-  if (perfPostNavLoadTimeout !== undefined)
-    perfOverrides.postNavigateLoadTimeout = perfPostNavLoadTimeout;
-  const perfWaitFastPollInterval = numberParser(process.env.PLAYWRIGHT_MCP_PERF_WAIT_FAST_POLL_INTERVAL);
-  if (perfWaitFastPollInterval !== undefined)
-    perfOverrides.waitFastPollInterval = perfWaitFastPollInterval;
-  const perfWaitFastPollRetries = numberParser(process.env.PLAYWRIGHT_MCP_PERF_WAIT_FAST_POLL_RETRIES);
-  if (perfWaitFastPollRetries !== undefined)
-    perfOverrides.waitFastPollRetries = perfWaitFastPollRetries;
-  const perfWaitDefaultTimeout = numberParser(process.env.PLAYWRIGHT_MCP_PERF_WAIT_DEFAULT_TIMEOUT);
-  if (perfWaitDefaultTimeout !== undefined)
-    perfOverrides.waitDefaultTimeout = perfWaitDefaultTimeout;
-  const perfWaitMaxTimeout = numberParser(process.env.PLAYWRIGHT_MCP_PERF_WAIT_MAX_TIMEOUT);
-  if (perfWaitMaxTimeout !== undefined)
-    perfOverrides.waitMaxTimeout = perfWaitMaxTimeout;
-  if (Object.keys(perfOverrides).length > 0)
-    config.performance = { ...config.performance, ...perfOverrides };
 
   return config;
 }
@@ -514,10 +442,6 @@ export function mergeConfig(base: FullConfig, overrides: Config): FullConfig {
         ...pickDefined(base.timeouts?.infrastructure),
         ...pickDefined(overrides.timeouts?.infrastructure),
       },
-    },
-    performance: {
-      ...pickDefined(base.performance),
-      ...pickDefined(overrides.performance),
     },
     logging: {
       ...pickDefined(base.logging),

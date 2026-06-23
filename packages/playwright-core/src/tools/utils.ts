@@ -17,10 +17,16 @@
 import type * as playwright from '../../types/types';
 import type { Tab } from './tab';
 
+// Hardcoded performance constants (consolidated from config — values stable since Wave 11)
+const POST_ACTION_DELAY = 30;
+const NAV_LOAD_STATE: 'domcontentloaded' = 'domcontentloaded';
+const NAV_LOAD_TIMEOUT = 5000;
+const NETWORK_RACE_TIMEOUT = 3000;
+const POST_SETTLEMENT_DELAY = 10;
+
 export async function waitForCompletion<R>(tab: Tab, callback: () => Promise<R>): Promise<R> {
   const requests: playwright.Request[] = [];
   const perf = tab.context.perfLog;
-  const perfConfig = tab.context.config.performance;
 
   const cappedTimeout = (configured: number): number => {
     const remaining = tab.context.remainingBudget();
@@ -35,26 +41,23 @@ export async function waitForCompletion<R>(tab: Tab, callback: () => Promise<R>)
   };
   tab.page.on('request', requestListener);
 
-  const postActionDelay = perfConfig?.postActionDelay ?? 100;
   let result: R;
   try {
     result = await callback();
     await perf.timeAsync({
       phase: 'waitForCompletion', step: 'postActionDelay', side: 'chrome',
-      target_ms: postActionDelay,
-    }, () => tab.waitForTimeout(cappedTimeout(postActionDelay)));
+      target_ms: POST_ACTION_DELAY,
+    }, () => tab.waitForTimeout(cappedTimeout(POST_ACTION_DELAY)));
   } finally {
     disposeListeners();
   }
 
   const requestedNavigation = requests.some(request => request.isNavigationRequest());
   if (requestedNavigation) {
-    const navState = perfConfig?.navigationLoadState ?? 'domcontentloaded';
-    const navTimeout = perfConfig?.navigationLoadTimeout ?? 5000;
     await perf.timeAsync({
       phase: 'waitForCompletion', step: 'navigationLoad', side: 'chrome',
-      target_ms: navTimeout, state: navState,
-    }, () => tab.page.mainFrame().waitForLoadState(navState, { timeout: cappedTimeout(navTimeout) }).catch(() => {}));
+      target_ms: NAV_LOAD_TIMEOUT, state: NAV_LOAD_STATE,
+    }, () => tab.page.mainFrame().waitForLoadState(NAV_LOAD_STATE, { timeout: cappedTimeout(NAV_LOAD_TIMEOUT) }).catch(() => {}));
     return result;
   }
 
@@ -65,19 +68,17 @@ export async function waitForCompletion<R>(tab: Tab, callback: () => Promise<R>)
     else
       promises.push(request.response().catch(() => {}));
   }
-  const raceMs = perfConfig?.networkRaceTimeout ?? 3000;
-  const raceTimeout = new Promise<void>(resolve => setTimeout(resolve, cappedTimeout(raceMs)));
+  const raceTimeout = new Promise<void>(resolve => setTimeout(resolve, cappedTimeout(NETWORK_RACE_TIMEOUT)));
   await perf.timeAsync({
     phase: 'waitForCompletion', step: 'networkRace', side: 'server',
-    target_ms: raceMs, requests: requests.length,
+    target_ms: NETWORK_RACE_TIMEOUT, requests: requests.length,
   }, () => Promise.race([Promise.all(promises), raceTimeout]).then(() => {}));
 
   if (requests.length) {
-    const postSettlementDelay = perfConfig?.postSettlementDelay ?? 10;
     await perf.timeAsync({
       phase: 'waitForCompletion', step: 'postSettlementDelay', side: 'chrome',
-      target_ms: postSettlementDelay,
-    }, () => tab.waitForTimeout(cappedTimeout(postSettlementDelay)));
+      target_ms: POST_SETTLEMENT_DELAY,
+    }, () => tab.waitForTimeout(cappedTimeout(POST_SETTLEMENT_DELAY)));
   }
 
   return result;

@@ -62,11 +62,6 @@ export type ContextConfig = {
     mode?: 'incremental' | 'full' | 'none';
     maxChars?: number;
     interactableOnly?: boolean;
-    settleMode?: 'none' | 'quick' | 'thorough';
-    settleQuietMs?: number;
-    gatesEnabled?: boolean;
-    gateTimeoutMs?: number;
-    waitForTimeout?: number;
     includeUrls?: boolean;
   };
   testIdAttribute?: string;
@@ -92,19 +87,6 @@ export type ContextConfig = {
   };
   maxResponseChars?: number;
   skillMode?: boolean;
-  performance?: {
-    postActionDelay?: number;
-    postSettlementDelay?: number;
-    networkRaceTimeout?: number;
-    navigationLoadState?: 'load' | 'domcontentloaded';
-    navigationLoadTimeout?: number;
-    postNavigateLoadState?: 'load' | 'domcontentloaded';
-    postNavigateLoadTimeout?: number;
-    waitFastPollInterval?: number;
-    waitFastPollRetries?: number;
-    waitDefaultTimeout?: number;
-    waitMaxTimeout?: number;
-  };
 };
 
 type ContextOptions = {

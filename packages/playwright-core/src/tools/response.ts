@@ -257,7 +257,7 @@ export class Response {
     if (this._snapshotWaitFor && hasTab && wantsSnapshot) {
       const tab = this._context.currentTabOrDie();
       const waitForTimeout = Math.min(
-          this._context.config.snapshot?.waitForTimeout ?? 3000,
+          3000,
           this._context.remainingBudget()
       );
       const perf = this._context.perfLog;

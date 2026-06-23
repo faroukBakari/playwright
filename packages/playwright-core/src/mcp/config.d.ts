@@ -267,41 +267,6 @@ export type Config = {
     interactableOnly?: boolean;
 
     /**
-     * Settling strategy before snapshot capture.
-     * - 'none' (T0): no settling — immediate snapshot
-     * - 'quick' (T1): microtask drain + double rAF (~32ms) — catches framework re-renders
-     * - 'thorough' (T2): T1 + filtered MutationObserver quiescence
-     * Defaults to 'quick'.
-     */
-    settleMode?: 'none' | 'quick' | 'thorough';
-
-    /**
-     * Quiet window (ms) for the MutationObserver in 'thorough' mode.
-     * The observer resolves after no meaningful mutations for this duration.
-     * Defaults to 150.
-     */
-    settleQuietMs?: number;
-
-    /**
-     * Enable negative gates (Navigation API, View Transitions, aria-busy)
-     * that detect in-progress transitions before snapshot capture.
-     * Defaults to true.
-     */
-    gatesEnabled?: boolean;
-
-    /**
-     * Maximum time (ms) to wait for any single gate to clear.
-     * Defaults to 2000.
-     */
-    gateTimeoutMs?: number;
-
-    /**
-     * Maximum timeout (ms) for the snapshotWaitFor parameter on action tools.
-     * Defaults to 3000.
-     */
-    waitForTimeout?: number;
-
-    /**
      * When false, link URLs are stripped from accessibility snapshots.
      * Links still show their text content and ref — only the [url=...] prop
      * is omitted. Saves ~14% of snapshot token budget on link-heavy pages.
@@ -351,28 +316,4 @@ export type Config = {
     backendDisposalTTL: number;
   };
 
-  performance?: {
-    /** Post-action request collection window (ms). Default: 100 */
-    postActionDelay?: number;
-    /** Post-settlement cooldown (ms). Default: 10 */
-    postSettlementDelay?: number;
-    /** Network race timeout (ms). Default: 3000 */
-    networkRaceTimeout?: number;
-    /** Navigation load state: 'load' | 'domcontentloaded'. Default: 'domcontentloaded' */
-    navigationLoadState?: 'load' | 'domcontentloaded';
-    /** Navigation load state timeout (ms). Default: 5000 */
-    navigationLoadTimeout?: number;
-    /** Post-navigate load state: 'load' | 'domcontentloaded'. Default: 'domcontentloaded' */
-    postNavigateLoadState?: 'load' | 'domcontentloaded';
-    /** Post-navigate load state timeout (ms). Default: 3000 */
-    postNavigateLoadTimeout?: number;
-    /** Interval in ms between fast-poll retries for text wait (default 200). */
-    waitFastPollInterval?: number;
-    /** Number of fast-poll retries before falling back to locator (default 5). */
-    waitFastPollRetries?: number;
-    /** Default wait timeout in ms (default 3000). */
-    waitDefaultTimeout?: number;
-    /** Maximum allowed wait timeout in ms (default 30000). */
-    waitMaxTimeout?: number;
-  };
 };

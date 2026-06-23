@@ -265,15 +265,9 @@ export class Tab extends EventEmitter<TabEventsInterface> {
       return;
     }
 
-    // Cap load event — only useful when postNavState differs from goto's waitUntil
-    const postNavState = this.context.config.performance?.postNavigateLoadState ?? 'domcontentloaded';
-    if (postNavState !== 'domcontentloaded') {
-      const postNavTimeout = this.context.config.performance?.postNavigateLoadTimeout ?? 3000;
-      await this.context.perfLog.timeAsync({
-        phase: 'navigate', step: 'postNavigateLoad', side: 'chrome',
-        target_ms: postNavTimeout, state: postNavState,
-      }, () => this.waitForLoadState(postNavState, { timeout: postNavTimeout }));
-    }
+    // Post-navigate load state hardcoded to 'domcontentloaded' — matches goto's
+    // waitUntil, so the extra waitForLoadState is a no-op. Kept as documentation;
+    // if postNavigateLoadState ever needs to differ, reintroduce config here.
   }
 
   async consoleMessageCount(): Promise<{ total: number, errors: number, warnings: number }> {

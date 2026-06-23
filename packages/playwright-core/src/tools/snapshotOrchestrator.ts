@@ -56,15 +56,17 @@ export class SnapshotOrchestrator {
   async captureSnapshot(relativeTo: string | undefined, options: { rootSelector?: string; clientId?: string } | undefined, callbacks: SnapshotCallbacks): Promise<TabSnapshot> {
     const interactableOnly = this._context.config.snapshot?.interactableOnly;
     const includeUrls = this._context.config.snapshot?.includeUrls;
-    const settleMode = this._context.config.snapshot?.settleMode ?? 'quick';
-    const gatesEnabled = this._context.config.snapshot?.gatesEnabled ?? true;
-    const gateTimeoutMs = this._context.config.snapshot?.gateTimeoutMs ?? 2000;
+    // Hardcoded snapshot settle/gate constants (consolidated from config — values stable since Wave 11)
+    // Typed as string to preserve quick/thorough/none code paths for re-enablement
+    const settleMode: string = 'quick';
+    const gatesEnabled = true;
+    const gateTimeoutMs = 2000;
     const rootSelector = options?.rootSelector;
     let tabSnapshot: TabSnapshot | undefined;
     const modalStates = await callbacks.raceAgainstModalStates(async () => {
       // Settle before snapshot: wait for framework re-renders to complete
       if (settleMode !== 'none') {
-        const quietMs = this._context.config.snapshot?.settleQuietMs ?? 150;
+        const quietMs = 150;
         const settleResult = await this._page.evaluate(async ({ mode, quietMs, rootSelector, gatesEnabled, gateTimeoutMs }) => {
           const t0 = performance.now();
           const gateResults: Record<string, string> = { nav: 'skip', vt: 'skip', ariaBusy: 'skip' };

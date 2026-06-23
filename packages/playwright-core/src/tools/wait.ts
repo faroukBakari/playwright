@@ -38,15 +38,18 @@ type WaitParams = {
 
 type Outcome = 'hit' | 'timeout' | 'error';
 
-function resolveTimeout(tab: Tab, params: WaitParams): number {
-  const perfConfig = tab.context.config.performance;
-  const defaultMs = perfConfig?.waitDefaultTimeout ?? 3000;
-  const maxMs = perfConfig?.waitMaxTimeout ?? 30000;
+// Hardcoded wait constants (consolidated from config — values stable since Wave 11)
+const WAIT_DEFAULT_TIMEOUT = 3000;
+const WAIT_MAX_TIMEOUT = 30000;
+const WAIT_FAST_POLL_INTERVAL = 200;
+const WAIT_FAST_POLL_RETRIES = 5;
+
+function resolveTimeout(_tab: Tab, params: WaitParams): number {
   const resolved = params.timeout
-    ? Math.min(params.timeout * 1000, maxMs)
-    : defaultMs;
+    ? Math.min(params.timeout * 1000, WAIT_MAX_TIMEOUT)
+    : WAIT_DEFAULT_TIMEOUT;
   waitDebug('resolveTimeout: default=%d max=%d requested=%s resolved=%d',
-      defaultMs, maxMs, params.timeout ?? 'none', resolved);
+      WAIT_DEFAULT_TIMEOUT, WAIT_MAX_TIMEOUT, params.timeout ?? 'none', resolved);
   return resolved;
 }
 
@@ -55,10 +58,8 @@ function isTimeoutError(e: unknown): boolean {
 }
 
 async function handleTime(tab: Tab, params: WaitParams, response: Response, _timeoutMs: number): Promise<Outcome> {
-  const perfConfig = tab.context.config.performance;
-  const maxMs = perfConfig?.waitMaxTimeout ?? 30000;
-  const ms = Math.min(maxMs, params.time! * 1000);
-  waitDebug('time: waiting %ds (%dms, max %dms)', params.time, ms, maxMs);
+  const ms = Math.min(WAIT_MAX_TIMEOUT, params.time! * 1000);
+  waitDebug('time: waiting %ds (%dms, max %dms)', params.time, ms, WAIT_MAX_TIMEOUT);
   const perf = tab.context.perfLog;
   response.addCode(`await new Promise(f => setTimeout(f, ${params.time!} * 1000));`);
   await perf.timeAsync({
@@ -75,32 +76,29 @@ async function handleTime(tab: Tab, params: WaitParams, response: Response, _tim
 
 async function handleText(tab: Tab, params: WaitParams, response: Response, timeoutMs: number): Promise<Outcome> {
   const perf = tab.context.perfLog;
-  const perfConfig = tab.context.config.performance;
-  const pollInterval = perfConfig?.waitFastPollInterval ?? 200;
-  const pollRetries = perfConfig?.waitFastPollRetries ?? 5;
   const text = params.text!;
 
   waitDebug('text: searching for "%s" (fastPoll: %dx%dms, locatorTimeout: %dms)',
-      text, pollRetries, pollInterval, timeoutMs);
+      text, WAIT_FAST_POLL_RETRIES, WAIT_FAST_POLL_INTERVAL, timeoutMs);
 
   // Stage 1: Fast-poll via page.evaluate (avoids locator overhead)
   let found = false;
   try {
     found = await perf.timeAsync({
       phase: 'wait', step: 'textFastPoll', side: 'chrome',
-      target_ms: pollInterval * pollRetries,
+      target_ms: WAIT_FAST_POLL_INTERVAL * WAIT_FAST_POLL_RETRIES,
       condition: 'text', value: text,
     }, async () => {
-      for (let i = 0; i < pollRetries; i++) {
+      for (let i = 0; i < WAIT_FAST_POLL_RETRIES; i++) {
         const visible = await tab.page.evaluate((t: string) => document.body?.innerText?.includes(t), text);
         if (visible) {
-          waitDebug('text: fast-poll hit on retry %d/%d', i + 1, pollRetries);
+          waitDebug('text: fast-poll hit on retry %d/%d', i + 1, WAIT_FAST_POLL_RETRIES);
           return true;
         }
-        if (i < pollRetries - 1)
-          await new Promise(f => setTimeout(f, pollInterval));
+        if (i < WAIT_FAST_POLL_RETRIES - 1)
+          await new Promise(f => setTimeout(f, WAIT_FAST_POLL_INTERVAL));
       }
-      waitDebug('text: fast-poll exhausted %d retries', pollRetries);
+      waitDebug('text: fast-poll exhausted %d retries', WAIT_FAST_POLL_RETRIES);
       return false;
     });
   } catch (e) {
@@ -110,7 +108,7 @@ async function handleText(tab: Tab, params: WaitParams, response: Response, time
 
   // Stage 2: Locator with visibility filter (only if fast-poll missed)
   if (!found) {
-    const remaining = Math.max(timeoutMs - (pollInterval * pollRetries), 500);
+    const remaining = Math.max(timeoutMs - (WAIT_FAST_POLL_INTERVAL * WAIT_FAST_POLL_RETRIES), 500);
     waitDebug('text: falling back to locator (remaining: %dms)', remaining);
     try {
       await perf.timeAsync({
