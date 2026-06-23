@@ -115,9 +115,9 @@ export class Tab extends EventEmitter<TabEventsInterface> {
         serverLog('warn', `tab init timed out: ${e.message}, sessionId=${this.context.id}`);
         // Swallow — init failure is non-fatal, snapshot will degrade gracefully
       });
-    this._actionTimeoutCeiling = context.config.timeouts?.playwright?.action;
-    this._navigationTimeoutCeiling = context.config.timeouts?.playwright?.navigation;
-    this._expectTimeoutCeiling = context.config.timeouts?.playwright?.expect;
+    this._actionTimeoutCeiling = 5_000;
+    this._navigationTimeoutCeiling = 15_000;
+    this._expectTimeoutCeiling = 5_000;
   }
 
   async dispose() {

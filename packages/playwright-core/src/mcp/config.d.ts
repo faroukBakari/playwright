@@ -213,10 +213,10 @@ export type Config = {
   testIdAttribute?: string;
 
   /**
-   * Unified timeout matrix for deadline propagation framework.
-   * Budget = per-call dispatch timeout, Playwright = inner action ceilings,
-   * Infrastructure = bridge/extension-level headroom.
-   * Settle timeouts live in `performance.*` and are resolved into the matrix at load time.
+   * Timeout configuration for deadline propagation framework.
+   * Budget = per-call dispatch timeout.
+   * Playwright inner ceilings (action=5s, navigation=15s, expect=5s) and
+   * bridge buffer (5s) are hardcoded constants — not configurable.
    */
   timeouts?: {
     /** Per-call budget: total time allocated for a tool invocation. */
@@ -228,19 +228,8 @@ export type Config = {
       /** Budget for browser_run_code (ms). Default: 30000 */
       runCode?: number;
     };
-    /** Playwright inner timeouts — ceilings within the budget. */
-    playwright?: {
-      /** Locator action timeout (ms). Default: 5000 */
-      action?: number;
-      /** Page navigation timeout (ms). Default: 60000 */
-      navigation?: number;
-      /** Expect/assertion timeout (ms). Default: 5000 */
-      expect?: number;
-    };
-    /** Infrastructure-level timeouts (bridge, extension). */
+    /** Infrastructure-level timeouts. */
     infrastructure?: {
-      /** Bridge HTTP timeout buffer above max budget (ms). Default: 5000 */
-      bridgeBuffer?: number;
       /**
        * Streamable HTTP session-transport idle TTL (ms). When no request arrives
        * within this window the transport closes, triggering disposal of the

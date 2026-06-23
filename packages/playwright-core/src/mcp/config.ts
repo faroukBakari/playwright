@@ -91,8 +91,7 @@ export const defaultConfig: FullConfig = {
   server: {},
   timeouts: {
     budget: { default: 5000, navigate: 15000, runCode: 30000 },
-    playwright: { action: 5000, navigation: 30000, expect: 5000 },
-    infrastructure: { bridgeBuffer: 5000, sessionTransportIdleTTL: 120000 },
+    infrastructure: { sessionTransportIdleTTL: 120000 },
   },
   performance: {
     postActionDelay: 30,
@@ -196,10 +195,9 @@ export async function validateConfig(config: FullConfig): Promise<void> {
   if (sessionTransportIdleTTL != null && sessionTransportIdleTTL < 0)
     throw new Error(`infrastructure.sessionTransportIdleTTL must be >= 0 (0 = never expire), got ${sessionTransportIdleTTL}.`);
 
-  // Timeout cascade validation — budget must accommodate inner timeouts
+  // Budget sanity checks
   const b = config.timeouts?.budget;
-  const p = config.timeouts?.playwright;
-  if (b && p) {
+  if (b) {
     const violations: string[] = [];
     if (b.default != null && b.default <= 0)
       violations.push(`budget.default must be positive, got ${b.default}ms.`);
@@ -207,14 +205,8 @@ export async function validateConfig(config: FullConfig): Promise<void> {
       violations.push(`budget.navigate (${b.navigate}ms) < budget.default (${b.default}ms).`);
     if (b.default != null && b.runCode != null && b.runCode < b.default)
       violations.push(`budget.runCode (${b.runCode}ms) < budget.default (${b.default}ms).`);
-    if (p.action != null && b.default != null && p.action > b.default * 2)
-      violations.push(`playwright.action (${p.action}ms) > 2x budget.default (${b.default}ms).`);
-    if (p.navigation != null && b.navigate != null && p.navigation > b.navigate * 2)
-      violations.push(`playwright.navigation (${p.navigation}ms) > 2x budget.navigate (${b.navigate}ms).`);
-    if (config.timeouts?.infrastructure?.bridgeBuffer != null && config.timeouts.infrastructure.bridgeBuffer < 3000)
-      violations.push(`infrastructure.bridgeBuffer (${config.timeouts.infrastructure.bridgeBuffer}ms) < 3000ms minimum.`);
     if (violations.length > 0)
-      throw new Error(`Timeout cascade violation:\n${violations.join('\n')}`);
+      throw new Error(`Timeout budget violation:\n${violations.join('\n')}`);
   }
 }
 
@@ -320,12 +312,7 @@ export function configFromCLIOptions(cliOptions: CLIOptions): Config & { configF
     downloadsPath: cliOptions.downloadsPath,
     imageResponses: cliOptions.imageResponses,
     testIdAttribute: cliOptions.testIdAttribute,
-    timeouts: {
-      playwright: {
-        action: cliOptions.timeoutAction,
-        navigation: cliOptions.timeoutNavigation,
-      },
-    },
+    timeouts: {},
   };
 
   return { ...config, configFile: cliOptions.config };
@@ -522,10 +509,6 @@ export function mergeConfig(base: FullConfig, overrides: Config): FullConfig {
       budget: {
         ...pickDefined(base.timeouts?.budget),
         ...pickDefined(overrides.timeouts?.budget),
-      },
-      playwright: {
-        ...pickDefined(base.timeouts?.playwright),
-        ...pickDefined(overrides.timeouts?.playwright),
       },
       infrastructure: {
         ...pickDefined(base.timeouts?.infrastructure),

@@ -76,13 +76,8 @@ export type ContextConfig = {
       navigate?: number;
       runCode?: number;
     };
-    playwright?: {
-      action?: number;
-      navigation?: number;
-      expect?: number;
-    };
     infrastructure?: {
-      bridgeBuffer?: number;
+      sessionTransportIdleTTL?: number;
     };
   };
   logging?: {
