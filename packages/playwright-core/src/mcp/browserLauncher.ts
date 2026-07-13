@@ -29,7 +29,7 @@ export function launchBrowserToExtension(extensionEndpoint: string, forceNewTab:
   // Upstream published ID: mmlmfjhmonkocbjadbfplnigmagldckm
   // Tests inject the published key into the manifest, producing the published ID —
   // set PLAYWRIGHT_MCP_EXTENSION_ID to match.
-  const extensionId = process.env.PLAYWRIGHT_MCP_EXTENSION_ID || 'fjaaeokdflnbifiadcgneihbpkmmlikp';
+  const extensionId = process.env.PLAYWRIGHT_MCP_EXTENSION_ID || 'ogigbfdkenfekilfcjlflbkalnahjefe';
   const url = new URL(`chrome-extension://${extensionId}/connect.html`);
   url.searchParams.set('mcpRelayUrl', extensionEndpoint);
   const client = {
