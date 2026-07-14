@@ -17,6 +17,7 @@
       "@recorder/*": ["./packages/recorder/src/*"],
       "@trace/*": ["./packages/trace/src/*"],
       "playwright-core/lib/*": ["./packages/playwright-core/src/*"],
+      "playwright-core/src/*": ["./packages/playwright-core/src/*"],
     },
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,

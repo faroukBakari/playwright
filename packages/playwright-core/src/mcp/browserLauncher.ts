@@ -66,7 +66,18 @@ export function openUrlInChrome(url: string): void {
   // with the OS and PATH lookups fail. See docs/chromium-fallback.md.
   const explicitExe = process.env.PLAYWRIGHT_MCP_EXECUTABLE_PATH;
   if (explicitExe) {
-    spawn(explicitExe, [url], {
+    const args: string[] = [];
+    // fork: auto-load the bridge extension when launching via explicit exe path.
+    // Without --load-extension, CfT starts clean and chrome-extension:// URLs fail
+    // with ERR_BLOCKED_BY_CLIENT. Env override > LOCALAPPDATA auto-discovery.
+    const extDir = process.env.PLAYWRIGHT_MCP_EXTENSION_DIR
+      || (process.env.LOCALAPPDATA && `${process.env.LOCALAPPDATA}/playwright-mcp-bridge`);
+    if (extDir && fs.existsSync(extDir)) {
+      args.push(`--load-extension=${extDir}`, '--test-type=', '--disable-infobars', '--no-first-run');
+      serverLog('lifecycle', `extension mode: loading extension from ${extDir}`);
+    }
+    args.push(url);
+    spawn(explicitExe, args, {
       detached: true,
       shell: false,
       stdio: 'ignore',
