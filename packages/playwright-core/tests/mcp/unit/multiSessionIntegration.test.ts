@@ -554,7 +554,7 @@ describe('Multi-Session Integration — Wave 4', () => {
     // Mirrors program.ts extension-mode disposal logic. Verifies that when the
     // configured TTL is 0, no setTimeout is armed and dispose() is never called.
     let disposeCalled = false;
-    const activeSessionCount = 0;
+    let activeSessionCount = 0;
     let backendDisposalTimer: ReturnType<typeof setTimeout> | null = null;
     const backendGraceTTL = 0;
 

@@ -4,7 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const playwrightCoreSrc = path.resolve(__dirname, '../../../../../playwright/packages/playwright-core/src');
+const playwrightCoreSrc = path.resolve(__dirname, '../../../src');
 
 import { ArtifactCollector } from 'playwright-core/src/tools/artifactCollector';
 import type { Download } from 'playwright-core/src/tools/artifactCollector';

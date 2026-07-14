@@ -3,11 +3,11 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import WebSocket from 'ws';
 
 import { CDPRelayServer } from 'playwright-core/src/mcp/cdpRelay';
-import { extLog, extWarn, extError, setSink, clearSink, _resetForTest, _getBuffer } from '../../../../packages/extension/src/extensionLog';
+import { extLog, extWarn, extError, setSink, clearSink, _resetForTest, _getBuffer } from '../../../../../../extension/src/extensionLog';
 import type { CDPRelayOptions } from 'playwright-core/src/mcp/cdpRelay';
 
 // Extension-side logger (source code, not compiled — vitest resolves via alias)
-import type { LogEntry } from '../../../../packages/extension/src/extensionLog';
+import type { LogEntry } from '../../../../../../extension/src/extensionLog';
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
