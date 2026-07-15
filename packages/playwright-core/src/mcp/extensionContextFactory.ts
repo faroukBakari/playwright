@@ -21,6 +21,7 @@ import { debug } from '../utilsBundle';
 import { createHttpServer, startHttpServer } from '../server/utils/network';
 import { CDPRelayServer } from './cdpRelay';
 import { InProcessTransport } from './inProcessTransport';
+import { serverLog } from './log';
 
 import type { ClientInfo } from './sdk/server';
 import type { FullConfig } from './config';
@@ -77,7 +78,14 @@ export async function createExtensionBrowser(config: FullConfig, clientInfo: Cli
   // awaiting reconnect, or close the extension WS needed for dormant reattach.
   if (relay.clientCount === 0 && !relay.hasGracedSessions && relay.dormantSessionCount === 0)
     relay.prepareForReconnect();
-  await relay.ensureExtensionConnectionForMCPContext(clientInfo, /* forceNewTab */ false);
+  try {
+    await relay.ensureExtensionConnectionForMCPContext(clientInfo, /* forceNewTab */ false);
+  } catch {
+    // Cold start: CfT was just spawned — extension not loaded yet (ERR_BLOCKED_BY_CLIENT).
+    // By now CfT + SW are warm. Retry once — connects in ~1ms on warm browser.
+    serverLog('lifecycle', 'extension connection failed on first attempt, retrying (cold start)');
+    await relay.ensureExtensionConnectionForMCPContext(clientInfo, /* forceNewTab */ false);
+  }
 
   // In-process transport — eliminates localhost WS loopback.
   // sessionId is required for multi-session identity routing.
