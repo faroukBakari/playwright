@@ -75,17 +75,16 @@ export class Response {
   }
 
   private _computRelativeTo(fileName: string): string {
-    return path.relative(this._clientWorkspace, fileName);
+    const rel = path.relative(this._clientWorkspace, fileName);
+    if (rel.startsWith('..'))
+      return fileName;
+    return rel;
   }
 
   async resolveClientFile(template: FilenameTemplate, title: string): Promise<ResolvedFile> {
-    let fileName: string;
-    if (template.suggestedFilename) {
+    if (template.suggestedFilename)
       validateFilename(template.suggestedFilename);
-      fileName = await this._context.workspaceFile(template.suggestedFilename, this._clientWorkspace);
-    } else {
-      fileName = await this._context.outputFile(template, { origin: 'llm' });
-    }
+    const fileName = await this._context.outputFile(template, { origin: 'code' });
     const relativeName = this._computRelativeTo(fileName);
     const printableLink = `- [${title}](${relativeName})`;
     return { fileName, relativeName, printableLink };

@@ -50,8 +50,10 @@ function createStubContext(configOverrides: Record<string, any> = {}) {
     options: { cwd: '/tmp' },
     currentTab: () => undefined,
     tabs: () => [],
-    workspaceFile: vi.fn(async (name: string) => `/tmp/${name}`),
-    outputFile: vi.fn(async () => '/tmp/auto-generated.txt'),
+    outputFile: vi.fn(async (template: { suggestedFilename?: string; prefix?: string; ext?: string }) => {
+      const name = template.suggestedFilename ?? 'auto-generated.txt';
+      return path.join(os.tmpdir(), 'playwright-mcp', name);
+    }),
   } as any;
 }
 
@@ -67,8 +69,7 @@ describe('resolveClientFile validates filename', () => {
         )
     ).rejects.toThrow('path separators');
 
-    // workspaceFile should never be called — validation fires first
-    expect(ctx.workspaceFile).not.toHaveBeenCalled();
+    expect(ctx.outputFile).not.toHaveBeenCalled();
   });
 
   it('allows clean suggestedFilename through', async () => {
@@ -80,8 +81,11 @@ describe('resolveClientFile validates filename', () => {
         'Console'
     );
 
-    expect(ctx.workspaceFile).toHaveBeenCalledWith('my-console.log', '/tmp');
-    expect(result.fileName).toBe('/tmp/my-console.log');
+    expect(ctx.outputFile).toHaveBeenCalledWith(
+        { prefix: 'console', ext: 'log', suggestedFilename: 'my-console.log' },
+        { origin: 'code' }
+    );
+    expect(result.fileName).toBe(path.join(os.tmpdir(), 'playwright-mcp', 'my-console.log'));
   });
 
   it('skips validation when no suggestedFilename (auto-generated path)', async () => {
@@ -93,8 +97,11 @@ describe('resolveClientFile validates filename', () => {
         'Snapshot'
     );
 
-    expect(ctx.outputFile).toHaveBeenCalled();
-    expect(result.fileName).toBe('/tmp/auto-generated.txt');
+    expect(ctx.outputFile).toHaveBeenCalledWith(
+        { prefix: 'page', ext: 'yml' },
+        { origin: 'code' }
+    );
+    expect(result.fileName).toBe(path.join(os.tmpdir(), 'playwright-mcp', 'auto-generated.txt'));
   });
 });
 
