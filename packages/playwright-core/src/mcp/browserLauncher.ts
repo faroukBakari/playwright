@@ -24,12 +24,11 @@ import { serverLog } from './log';
  * Extracted from CDPRelayServer to keep the relay focused on WebSocket routing.
  */
 export function launchBrowserToExtension(extensionEndpoint: string, forceNewTab: boolean): void {
-  // fork: Extension ID is configurable via env var for test compatibility.
-  // Default: our unpacked extension ID (stable per deploy dir %LOCALAPPDATA%\playwright-mcp-bridge\).
-  // Upstream published ID: mmlmfjhmonkocbjadbfplnigmagldckm
-  // Tests inject the published key into the manifest, producing the published ID —
-  // set PLAYWRIGHT_MCP_EXTENSION_ID to match.
-  const extensionId = process.env.PLAYWRIGHT_MCP_EXTENSION_ID || 'ogigbfdkenfekilfcjlflbkalnahjefe';
+  // fork: Extension ID from env var (SSOT: extensionId in playwright-mcp.json, exported by server.py).
+  // Override via PLAYWRIGHT_MCP_EXTENSION_ID in .env.local for test compatibility.
+  const extensionId = process.env.PLAYWRIGHT_MCP_EXTENSION_ID;
+  if (!extensionId)
+    throw new Error('PLAYWRIGHT_MCP_EXTENSION_ID environment variable is required — set extensionId in playwright-mcp.json or override in .env.local');
   const url = new URL(`chrome-extension://${extensionId}/connect.html`);
   url.searchParams.set('mcpRelayUrl', extensionEndpoint);
   const client = {
