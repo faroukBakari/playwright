@@ -15,6 +15,8 @@
  */
 
 import { z } from '../mcpBundle';
+import { serverLog } from '../mcp/log';
+import { inputSentNote, isUnacknowledgedInput, raceAcknowledgement } from './inputDelivery';
 import { defineTabTool } from './tool';
 import { elementSchema, snapshotOptionsSchema } from './snapshot';
 
@@ -35,13 +37,21 @@ const press = defineTabTool({
   handle: async (tab, params, response) => {
     response.addCode(`// Press ${params.key}`);
     response.addCode(`await page.keyboard.press('${params.key}');`);
-    if (params.key === 'Enter') {
-      response.setIncludeSnapshot();
-      await tab.waitForCompletion(async () => {
-        await tab.page.keyboard.press('Enter');
-      });
-    } else {
-      await tab.page.keyboard.press(params.key);
+    const startedAt = Date.now();
+    const pressKey = () => raceAcknowledgement(() => tab.page.keyboard.press(params.key), tab.actionTimeoutOptions.timeout);
+    try {
+      if (params.key === 'Enter') {
+        response.setIncludeSnapshot();
+        await tab.waitForCompletion(pressKey);
+      } else {
+        await pressKey();
+      }
+    } catch (error) {
+      if (!isUnacknowledgedInput(error))
+        throw error;
+      const waitedMs = Date.now() - startedAt;
+      serverLog('warn', `[browser_press_key] input sent, page did not acknowledge it: waited_ms=${waitedMs}`);
+      response.addTextResult(inputSentNote(waitedMs));
     }
   },
 });

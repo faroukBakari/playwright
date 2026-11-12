@@ -21,7 +21,7 @@ import { ManualPromise } from '../utils/isomorphic/manualPromise';
 import { debug } from '../utilsBundle';
 
 import { eventsHelper } from '../client/eventEmitter';
-import { callOnPageNoTrace, waitForCompletion, eventWaiter } from './utils';
+import { callOnPageNoTrace, waitForCompletion, eventWaiter, requestBudgetLeft } from './utils';
 import { ModalState } from './tool';
 import { handleDialog } from './dialogs';
 import { uploadFile } from './files';
@@ -358,9 +358,23 @@ export class Tab extends EventEmitter<TabEventsInterface> {
         return;
       }
 
-      await callOnPageNoTrace(this.page, page => {
+      // A busy page answers late: the sleep stops waiting for it at the call deadline.
+      const sleptInPage = callOnPageNoTrace(this.page, page => {
         return page.evaluate(ms => new Promise(f => setTimeout(f, ms)), time).catch(() => {});
       });
+      const budgetLeft = requestBudgetLeft();
+      if (budgetLeft === Infinity) {
+        await sleptInPage;
+        return;
+      }
+      sleptInPage.catch(() => {});
+      let budgetTimer: ReturnType<typeof setTimeout> | undefined;
+      const budgetSpent = new Promise<void>(resolve => { budgetTimer = setTimeout(resolve, budgetLeft); });
+      try {
+        await Promise.race([sleptInPage, budgetSpent]);
+      } finally {
+        clearTimeout(budgetTimer);
+      }
     });
   }
 }

@@ -8,15 +8,12 @@ function withBudget<T>(budgetMs: number, fn: () => T): T {
 }
 
 // ---------------------------------------------------------------------------
-// Budget-aware settle capping (Phase 2)
-//
-// waitForCompletion's cappedTimeout(configured) returns
-// min(configured, remainingBudget()). We test the capping semantics
-// through the real Context budget reader inside a request scope.
+// Capping a configured wait by the throwing budget reader of the context,
+// inside a request scope. The post-action settle no longer uses this reader:
+// its non-throwing cap is covered by frozenPageWaits.test.ts.
 // ---------------------------------------------------------------------------
 
-describe('cappedTimeout semantics via Context.remainingBudget()', () => {
-  /** Replicates the cappedTimeout helper from utils.ts */
+describe('capping a wait by the context budget reader', () => {
   function cappedTimeout(ctx: Context, configured: number): number {
     const remaining = ctx.remainingBudget();
     if (remaining === Infinity)

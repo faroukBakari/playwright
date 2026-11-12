@@ -15,8 +15,10 @@
  */
 
 import { z } from '../mcpBundle';
+import { serverLog } from '../mcp/log';
 import { formatObject, formatObjectOrVoid } from '../utils/isomorphic/stringUtils';
 
+import { inputSentNote, isUnacknowledgedInput } from './inputDelivery';
 import { defineTabTool, defineTool } from './tool';
 
 export const consoleOptionsSchema = z.object({
@@ -94,12 +96,21 @@ const click = defineTabTool({
     else
       response.addCode(`await page.${resolved}.click(${optionsArg});`);
 
-    await tab.waitForCompletion(async () => {
-      if (params.doubleClick)
-        await locator.dblclick(options);
-      else
-        await locator.click(options);
-    });
+    const startedAt = Date.now();
+    try {
+      await tab.waitForCompletion(async () => {
+        if (params.doubleClick)
+          await locator.dblclick(options);
+        else
+          await locator.click(options);
+      });
+    } catch (error) {
+      if (!isUnacknowledgedInput(error))
+        throw error;
+      const waitedMs = Date.now() - startedAt;
+      serverLog('warn', `[browser_click] input sent, page did not acknowledge it: waited_ms=${waitedMs}`);
+      response.addTextResult(inputSentNote(waitedMs));
+    }
   },
 });
 

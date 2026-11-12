@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+import { currentRequestScope } from './requestScope';
+
 import type * as playwright from '../../types/types';
 import type { Tab } from './tab';
 
@@ -24,16 +26,22 @@ const NAV_LOAD_TIMEOUT = 5000;
 const NETWORK_RACE_TIMEOUT = 3000;
 const POST_SETTLEMENT_DELAY = 10;
 
+/** Milliseconds left for the current call, zero once its deadline has passed; unbounded outside a call. */
+export function requestBudgetLeft(): number {
+  const scope = currentRequestScope();
+  return scope ? Math.max(0, scope.deadline - Date.now()) : Infinity;
+}
+
+/**
+ * Runs the action, then lets the page settle. The action's own errors propagate;
+ * the settling never fails the call and stops at the call deadline.
+ */
 export async function waitForCompletion<R>(tab: Tab, callback: () => Promise<R>): Promise<R> {
   const requests: playwright.Request[] = [];
   const perf = tab.context.perfLog;
 
-  const cappedTimeout = (configured: number): number => {
-    const remaining = tab.context.remainingBudget();
-    if (remaining === Infinity)
-      return configured;
-    return Math.min(configured, Math.max(0, remaining));
-  };
+  const cappedTimeout = (configured: number): number => Math.min(configured, requestBudgetLeft());
+  const budgetSpent = () => requestBudgetLeft() <= 0;
 
   const requestListener = (request: playwright.Request) => requests.push(request);
   const disposeListeners = () => {
@@ -44,13 +52,18 @@ export async function waitForCompletion<R>(tab: Tab, callback: () => Promise<R>)
   let result: R;
   try {
     result = await callback();
-    await perf.timeAsync({
-      phase: 'waitForCompletion', step: 'postActionDelay', side: 'chrome',
-      target_ms: POST_ACTION_DELAY,
-    }, () => tab.waitForTimeout(cappedTimeout(POST_ACTION_DELAY)));
+    if (!budgetSpent()) {
+      await perf.timeAsync({
+        phase: 'waitForCompletion', step: 'postActionDelay', side: 'chrome',
+        target_ms: POST_ACTION_DELAY,
+      }, () => tab.waitForTimeout(cappedTimeout(POST_ACTION_DELAY)));
+    }
   } finally {
     disposeListeners();
   }
+
+  if (budgetSpent())
+    return result;
 
   const requestedNavigation = requests.some(request => request.isNavigationRequest());
   if (requestedNavigation) {
@@ -74,7 +87,7 @@ export async function waitForCompletion<R>(tab: Tab, callback: () => Promise<R>)
     target_ms: NETWORK_RACE_TIMEOUT, requests: requests.length,
   }, () => Promise.race([Promise.all(promises), raceTimeout]).then(() => {}));
 
-  if (requests.length) {
+  if (requests.length && !budgetSpent()) {
     await perf.timeAsync({
       phase: 'waitForCompletion', step: 'postSettlementDelay', side: 'chrome',
       target_ms: POST_SETTLEMENT_DELAY,
