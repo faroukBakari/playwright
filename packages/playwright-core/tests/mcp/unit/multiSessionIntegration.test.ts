@@ -149,8 +149,8 @@ class RelayTestHarness {
         ws.close();
       });
       // Wait for relay to process the close (state transition or client removal)
-      const deadline = Date.now() + 500;
-      while (Date.now() < deadline) {
+      const deadline = performance.now() + 500;
+      while (performance.now() < deadline) {
         if (this.relay.clientCount < clientCountBefore || this.relay.state !== 'connected')
           break;
         await sleep(5);

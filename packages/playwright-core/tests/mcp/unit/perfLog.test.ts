@@ -8,12 +8,13 @@ import { BrowserServerBackend } from 'playwright-core/src/tools/browserServerBac
 import { PerfLog, nullPerfLog, createPerfLog } from 'playwright-core/src/tools/perfLog';
 import { runInRequestScope } from 'playwright-core/src/tools/requestScope';
 import { defineTool } from 'playwright-core/src/tools/tool';
+import { monotonicTime } from 'playwright-core/src/utils/isomorphic/time';
 import type { RequestScope } from 'playwright-core/src/tools/requestScope';
 
 vi.mock('playwright-core/src/mcp/log', () => ({ serverLog: vi.fn(), logUnhandledError: vi.fn() }));
 
 function inCall<T>(labels: Partial<RequestScope>, fn: () => T): T {
-  return runInRequestScope({ callId: 'call-fixture', tool: 'fixture_tool', deadline: Date.now() + 5000, ...labels }, fn);
+  return runInRequestScope({ callId: 'call-fixture', tool: 'fixture_tool', deadline: monotonicTime() + 5000, ...labels }, fn);
 }
 
 let tmpDir: string;
@@ -269,7 +270,7 @@ describe('per-call labels', () => {
     log.setClientId('default-client');
     let releaseFirst!: () => void;
     const gate = new Promise<void>(resolve => releaseFirst = resolve);
-    const deadline = Date.now() + 5000;
+    const deadline = monotonicTime() + 5000;
 
     const first = runInRequestScope({ callId: 'call-1', tool: 'tool_one', sessionId: 'session-1', deadline }, () => log.timeAsync(
         { phase: 'tool', step: 'first', side: 'server', target_ms: 0 },

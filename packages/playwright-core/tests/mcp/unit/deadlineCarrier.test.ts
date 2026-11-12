@@ -4,9 +4,10 @@ import { describe, it, expect } from 'vitest';
 import { Context } from 'playwright-core/src/tools/context';
 import { Tab } from 'playwright-core/src/tools/tab';
 import { RequestDeadlineError, runInRequestScope } from 'playwright-core/src/tools/requestScope';
+import { monotonicTime } from 'playwright-core/src/utils/isomorphic/time';
 
 function withBudget<T>(budgetMs: number, fn: () => T): T {
-  return runInRequestScope({ callId: 'call-fixture', tool: 'fixture_tool', deadline: Date.now() + budgetMs }, fn);
+  return runInRequestScope({ callId: 'call-fixture', tool: 'fixture_tool', deadline: monotonicTime() + budgetMs }, fn);
 }
 
 // ---------------------------------------------------------------------------

@@ -115,11 +115,11 @@ describe('last tab close recovery', () => {
     let createRequested = false;
     setTimeout(() => ctx.onPageCreated({ url: 'https://recovered.com' }), 100);
 
-    const t0 = Date.now();
+    const t0 = performance.now();
     const tab2 = await ctx.ensureTab({
       onCreateRequested: () => { createRequested = true; },
     });
-    const elapsed = Date.now() - t0;
+    const elapsed = performance.now() - t0;
 
     expect(createRequested).toBe(true);
     expect(elapsed).toBeGreaterThanOrEqual(80);

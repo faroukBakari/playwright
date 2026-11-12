@@ -17,6 +17,7 @@
 import { z } from '../mcpBundle';
 import { serverLog } from '../mcp/log';
 import { formatObject, formatObjectOrVoid } from '../utils/isomorphic/stringUtils';
+import { monotonicTime } from '../utils/isomorphic/time';
 
 import { inputSentNote, isUnacknowledgedInput } from './inputDelivery';
 import { defineTabTool, defineTool } from './tool';
@@ -96,7 +97,7 @@ const click = defineTabTool({
     else
       response.addCode(`await page.${resolved}.click(${optionsArg});`);
 
-    const startedAt = Date.now();
+    const startedAt = monotonicTime();
     try {
       await tab.waitForCompletion(async () => {
         if (params.doubleClick)
@@ -107,7 +108,7 @@ const click = defineTabTool({
     } catch (error) {
       if (!isUnacknowledgedInput(error))
         throw error;
-      const waitedMs = Date.now() - startedAt;
+      const waitedMs = Math.round(monotonicTime() - startedAt);
       serverLog('warn', `[browser_click] input sent, page did not acknowledge it: waited_ms=${waitedMs}`);
       response.addTextResult(inputSentNote(waitedMs));
     }

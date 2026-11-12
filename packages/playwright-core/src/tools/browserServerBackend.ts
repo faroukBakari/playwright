@@ -22,6 +22,7 @@ import { createPerfLog, nullPerfLog } from './perfLog';
 import { createErrorLog } from './errorLog';
 import { RequestDeadlineError, runInRequestScope, runOutsideRequestScope } from './requestScope';
 import { recycleTab } from './tabUtils';
+import { monotonicTime } from '../utils/isomorphic/time';
 import { debug } from '../utilsBundle';
 import { serverLog } from '../mcp/log';
 
@@ -273,7 +274,7 @@ export class BrowserServerBackend implements ServerBackend {
     if (snapshotMode !== undefined || snapshotSelector !== undefined)
       requestDebug('tool=%s includeSnapshot=%s snapshotSelector=%s', name, snapshotMode, snapshotSelector);
     const call: ToolCall = { tool, parsedArguments, cwd, snapshotSelector, snapshotMode, timeoutMs, sessionId };
-    const scope: RequestScope = { callId: crypto.randomUUID(), tool: name, sessionId, deadline: Date.now() + timeoutMs };
+    const scope: RequestScope = { callId: crypto.randomUUID(), tool: name, sessionId, deadline: monotonicTime() + timeoutMs };
     return await runInRequestScope(scope, () => this._admit(call, scope));
   }
 
@@ -293,7 +294,7 @@ export class BrowserServerBackend implements ServerBackend {
     const admitted = await Promise.race([
       previous.then(() => true),
       new Promise<boolean>(resolve => {
-        deadlineTimer = setTimeout(() => resolve(false), Math.max(0, scope.deadline - Date.now()));
+        deadlineTimer = setTimeout(() => resolve(false), Math.max(0, scope.deadline - monotonicTime()));
       }),
     ]);
     clearTimeout(deadlineTimer!);
@@ -366,7 +367,7 @@ export class BrowserServerBackend implements ServerBackend {
     const work = this._runTool(call, scope, progress);
     let watchdogTimer: ReturnType<typeof setTimeout>;
     const watchdog = new Promise<'expired'>(resolve => {
-      watchdogTimer = setTimeout(() => resolve('expired'), Math.max(0, scope.deadline + WATCHDOG_ALLOWANCE_MS - Date.now()));
+      watchdogTimer = setTimeout(() => resolve('expired'), Math.max(0, scope.deadline + WATCHDOG_ALLOWANCE_MS - monotonicTime()));
     });
     const settled = await Promise.race([
       work.then(result => ({ result }), (error: unknown) => ({ error })),

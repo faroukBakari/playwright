@@ -16,6 +16,7 @@
 
 import { z } from '../mcpBundle';
 import { serverLog } from '../mcp/log';
+import { monotonicTime } from '../utils/isomorphic/time';
 import { inputSentNote, isUnacknowledgedInput, raceAcknowledgement } from './inputDelivery';
 import { defineTabTool } from './tool';
 import { elementSchema, snapshotOptionsSchema } from './snapshot';
@@ -37,7 +38,7 @@ const press = defineTabTool({
   handle: async (tab, params, response) => {
     response.addCode(`// Press ${params.key}`);
     response.addCode(`await page.keyboard.press('${params.key}');`);
-    const startedAt = Date.now();
+    const startedAt = monotonicTime();
     const pressKey = () => raceAcknowledgement(() => tab.page.keyboard.press(params.key), tab.actionTimeoutOptions.timeout);
     try {
       if (params.key === 'Enter') {
@@ -49,7 +50,7 @@ const press = defineTabTool({
     } catch (error) {
       if (!isUnacknowledgedInput(error))
         throw error;
-      const waitedMs = Date.now() - startedAt;
+      const waitedMs = Math.round(monotonicTime() - startedAt);
       serverLog('warn', `[browser_press_key] input sent, page did not acknowledge it: waited_ms=${waitedMs}`);
       response.addTextResult(inputSentNote(waitedMs));
     }

@@ -11,7 +11,7 @@ const budgetMs = 1000;
 const watchdogAllowanceMs = 500;
 const testTimeoutMs = 20_000;
 const inputSentNote = 'Input sent, but the page did not acknowledge it within';
-const busy = `const end=Date.now()+${freezeMs};while(Date.now()<end){}`;
+const busy = `const end=performance.now()+${freezeMs};while(performance.now()<end){}`;
 
 const pages = {
   clickFreezes: `<button onclick="document.title='clicked';${busy}">Stall</button>`,
@@ -67,10 +67,10 @@ describe.skipIf(!chromiumInstalled)(suiteTitle, () => {
     await backend.initialize({ cwd: os.tmpdir() } as any);
 
     const call = async (tool: string, args: Record<string, unknown>) => {
-      const startedAt = Date.now();
+      const startedAt = performance.now();
       const result = await backend.callTool(tool, args, async () => {});
       const text = textOf(result);
-      return { isError: !!result.isError, noted: text.includes(inputSentNote), text, elapsedMs: Date.now() - startedAt };
+      return { isError: !!result.isError, noted: text.includes(inputSentNote), text, elapsedMs: performance.now() - startedAt };
     };
     const opened = await call('browser_navigate', { url: `data:text/html,${encodeURIComponent(html)}` });
     const ref = /\[ref=(e\d+)\]/.exec(opened.text)?.[1];

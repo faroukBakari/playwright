@@ -11,6 +11,7 @@ import { remainingRequestBudget, runInRequestScope } from 'playwright-core/src/t
 import { Tab } from 'playwright-core/src/tools/tab';
 import { browserTools } from 'playwright-core/src/tools/tools';
 import { waitForCompletion } from 'playwright-core/src/tools/utils';
+import { monotonicTime } from 'playwright-core/src/utils/isomorphic/time';
 
 vi.mock('playwright-core/src/mcp/log', () => ({ serverLog: vi.fn(), logUnhandledError: vi.fn() }));
 
@@ -68,14 +69,17 @@ function textOf(result: { content?: Array<{ type: string, text?: string }> }) {
   return (result.content ?? []).map(part => part.type === 'text' ? part.text : '').join('\n');
 }
 
-function clickFixture(callLog: string[]) {
+function clickFixture(callLog: string[], duringClick: () => void = () => {}) {
   const config = {
     codegen: 'none',
     snapshot: { mode: 'full' },
     timeouts: { budget: { default: budgetMs, navigate: budgetMs, runCode: budgetMs } },
   } as ConstructorParameters<typeof BrowserServerBackend>[0];
   const context = new Context({} as any, { config, cwd: os.tmpdir() });
-  const rejectWithTimeout = () => Promise.reject(playwrightTimeout(callLog));
+  const rejectWithTimeout = () => {
+    duringClick();
+    return Promise.reject(playwrightTimeout(callLog));
+  };
   const tab = {
     page: { url: () => 'about:blank' },
     modalStates: () => [],
@@ -168,7 +172,7 @@ describe('the waits that need the page to answer', () => {
       _modalStates: [],
     });
     let outcome: unknown = 'pending';
-    const scope = { callId: 'call-1', tool: 'fixture_tool', deadline: Date.now() + budgetMs };
+    const scope = { callId: 'call-1', tool: 'fixture_tool', deadline: monotonicTime() + budgetMs };
 
     void runInRequestScope(scope, () => waitForCompletion(tab, async () => 'action-result')).then(
         value => { outcome = value; },
@@ -188,6 +192,16 @@ describe('a click that timed out in the page', () => {
     const { text, ...outcome } = await click();
 
     expect(outcome, text).toEqual({ isError: false, noted: true });
+  });
+
+  it('regression: a click whose wait spans a wall-clock step reports the time it actually waited', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'performance'] });
+    const click = clickFixture(replyAfterClickWithheld, () => vi.setSystemTime(Date.now() + 800));
+
+    const { text, ...outcome } = await click();
+
+    expect(outcome, text).toEqual({ isError: false, noted: true });
+    expect(text).toContain(`${inputSentNote} 0ms`);
   });
 
   it('control: a click that another element intercepted stays an error', async () => {

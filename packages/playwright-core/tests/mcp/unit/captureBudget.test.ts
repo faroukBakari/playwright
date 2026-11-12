@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { runInRequestScope } from 'playwright-core/src/tools/requestScope';
 import { SnapshotOrchestrator } from 'playwright-core/src/tools/snapshotOrchestrator';
 import { Tab } from 'playwright-core/src/tools/tab';
+import { monotonicTime } from 'playwright-core/src/utils/isomorphic/time';
 import type { SnapshotCallbacks } from 'playwright-core/src/tools/snapshotOrchestrator';
 
 afterEach(() => {
@@ -18,7 +19,7 @@ function createFixture() {
     body: {},
   });
   vi.stubGlobal('requestAnimationFrame', (callback: () => void) => callback());
-  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.useFakeTimers({ toFake: ['Date', 'performance'] });
 
   const captureOptions: Array<Record<string, unknown>> = [];
   const context = {
@@ -50,7 +51,7 @@ describe('snapshot capture takes the request budget', () => {
   it('regression: the capture is given the time left before the call deadline', async () => {
     const f = createFixture();
 
-    await runInRequestScope({ callId: 'call-1', tool: 'fixture_tool', deadline: Date.now() + 4000 }, () => f.capture());
+    await runInRequestScope({ callId: 'call-1', tool: 'fixture_tool', deadline: monotonicTime() + 4000 }, () => f.capture());
 
     expect(f.captureOptions).toHaveLength(1);
     expect(f.captureOptions[0].timeout).toBe(4000);

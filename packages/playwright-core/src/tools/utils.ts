@@ -15,6 +15,7 @@
  */
 
 import { currentRequestScope } from './requestScope';
+import { monotonicTime } from '../utils/isomorphic/time';
 
 import type * as playwright from '../../types/types';
 import type { Tab } from './tab';
@@ -29,7 +30,7 @@ const POST_SETTLEMENT_DELAY = 10;
 /** Milliseconds left for the current call, zero once its deadline has passed; unbounded outside a call. */
 export function requestBudgetLeft(): number {
   const scope = currentRequestScope();
-  return scope ? Math.max(0, scope.deadline - Date.now()) : Infinity;
+  return scope ? Math.max(0, scope.deadline - monotonicTime()) : Infinity;
 }
 
 /**

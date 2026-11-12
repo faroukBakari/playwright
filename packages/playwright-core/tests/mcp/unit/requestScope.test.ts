@@ -3,12 +3,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { Context } from 'playwright-core/src/tools/context';
 import { RequestDeadlineError, currentRequestScope, runInRequestScope, runOutsideRequestScope } from 'playwright-core/src/tools/requestScope';
+import { monotonicTime } from 'playwright-core/src/utils/isomorphic/time';
 import type { RequestScope } from 'playwright-core/src/tools/requestScope';
 
 afterEach(() => vi.useRealTimers());
 
 function scopeFor(name: string, budgetMs: number): RequestScope {
-  return { callId: `call-${name}`, tool: name, sessionId: `session-${name}`, deadline: Date.now() + budgetMs };
+  return { callId: `call-${name}`, tool: name, sessionId: `session-${name}`, deadline: monotonicTime() + budgetMs };
 }
 
 function createContext(): Context {
@@ -23,7 +24,7 @@ function createContext(): Context {
 
 describe('request scope carries the call deadline', () => {
   it('regression: the remaining budget inside a scope is the time left before its deadline', () => {
-    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.useFakeTimers({ toFake: ['Date', 'performance'] });
     const context = createContext();
 
     const remaining = runInRequestScope(scopeFor('first', 5000), () => {
@@ -35,7 +36,7 @@ describe('request scope carries the call deadline', () => {
   });
 
   it('regression: reading the budget after the deadline throws', () => {
-    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.useFakeTimers({ toFake: ['Date', 'performance'] });
     const context = createContext();
 
     const read = () => runInRequestScope(scopeFor('expired', 1000), () => {
@@ -47,7 +48,7 @@ describe('request scope carries the call deadline', () => {
   });
 
   it('regression: work that outlives its call keeps its own expired deadline while another call runs', async () => {
-    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.useFakeTimers({ toFake: ['Date', 'performance'] });
     const context = createContext();
     let releaseLeftover!: () => void;
     const gate = new Promise<void>(resolve => releaseLeftover = resolve);

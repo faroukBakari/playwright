@@ -3,6 +3,7 @@
  */
 
 import { serverLog } from '../mcp/log';
+import { monotonicTime } from '../utils/isomorphic/time';
 import { targetIdOf } from './context';
 import type { Context } from './context';
 import type { Tab } from './tab';
@@ -26,9 +27,9 @@ export async function waitForBoundPage(
     return tab && targetIdOf(tab.page) === expectedTargetId ? tab : undefined;
   };
 
-  const deadline = Date.now() + timeoutMs;
+  const deadline = monotonicTime() + timeoutMs;
   let tab = boundTab();
-  while (!tab && Date.now() < deadline) {
+  while (!tab && monotonicTime() < deadline) {
     await new Promise(r => setTimeout(r, 100));
     tab = boundTab();
   }
@@ -57,9 +58,9 @@ export async function waitForNewPage(
 ): Promise<Tab> {
   serverLog('lifecycle', `${label}: waiting for new page, existing pages=${pagesBefore.size}`);
 
-  const deadline = Date.now() + timeoutMs;
+  const deadline = monotonicTime() + timeoutMs;
   let newTab = context.tabs().find(t => !pagesBefore.has(t.page));
-  while (!newTab && Date.now() < deadline) {
+  while (!newTab && monotonicTime() < deadline) {
     await new Promise(r => setTimeout(r, 100));
     newTab = context.tabs().find(t => !pagesBefore.has(t.page));
   }

@@ -81,8 +81,8 @@ class RelayTestHarness {
         ws.close();
       });
       // Wait for relay to process the close (state transition or client removal)
-      const deadline = Date.now() + 500;
-      while (Date.now() < deadline) {
+      const deadline = performance.now() + 500;
+      while (performance.now() < deadline) {
         if (this.relay.clientCount < clientCountBefore || this.relay.state !== 'connected')
           break;
         await sleep(5);
@@ -143,12 +143,12 @@ function sleep(ms: number): Promise<void> {
 
 function waitForMessage(messages: any[], method: string, timeoutMs = 5000): Promise<any> {
   return new Promise((resolve, reject) => {
-    const deadline = Date.now() + timeoutMs;
+    const deadline = performance.now() + timeoutMs;
     const check = () => {
       const found = messages.find(m => m.method === method);
       if (found)
         return resolve(found);
-      if (Date.now() >= deadline)
+      if (performance.now() >= deadline)
         return reject(new Error(`Timed out waiting for "${method}" message`));
       setTimeout(check, 25);
     };

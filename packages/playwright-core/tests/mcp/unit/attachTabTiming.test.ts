@@ -493,7 +493,7 @@ describe('attachTab page materialization timing', () => {
     pw.on('message', (data: WebSocket.RawData) => {
       const msg = JSON.parse(data.toString());
       if (msg.method === 'Target.attachedToTarget')
-        attachedToTargetReceiveTime = Date.now();
+        attachedToTargetReceiveTime = performance.now();
 
     });
 
@@ -502,7 +502,7 @@ describe('attachTab page materialization timing', () => {
         .attachTab(sessionId, 77)
         .then((result: any) => {
         // Capture time immediately upon promise resolution — before any awaits
-          return { result, resolvedAt: Date.now() };
+          return { result, resolvedAt: performance.now() };
         });
 
     // At this exact point, attachTab has returned. The question is: has the

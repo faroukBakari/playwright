@@ -1,15 +1,18 @@
 /**
- * Per-call state for one tool call: identity for telemetry and the wall-clock
- * deadline. Carried by the async context, so overlapping calls and work that
- * outlives its call each keep their own.
+ * Per-call state for one tool call: identity for telemetry and the deadline.
+ * Carried by the async context, so overlapping calls and work that outlives
+ * its call each keep their own.
  */
 
 import { AsyncLocalStorage } from 'async_hooks';
+
+import { monotonicTime } from '../utils/isomorphic/time';
 
 export type RequestScope = {
   callId: string;
   tool: string;
   sessionId?: string;
+  // Monotonic milliseconds: a wall-clock step (NTP correction) must not move a call's deadline.
   deadline: number;
 };
 
@@ -43,7 +46,7 @@ export function remainingRequestBudget(): number {
   const scope = storage.getStore();
   if (!scope)
     return Infinity;
-  const remaining = scope.deadline - Date.now();
+  const remaining = scope.deadline - monotonicTime();
   if (remaining <= 0)
     throw new RequestDeadlineError(scope);
   return remaining;
