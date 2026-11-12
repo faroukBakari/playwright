@@ -50,13 +50,14 @@ export class ExtensionConnection {
     });
     if (!options?.timeout)
       return promise;
-    return Promise.race([
-      promise,
-      new Promise((_resolve, reject) => setTimeout(() => {
+    let timer: NodeJS.Timeout | undefined;
+    const timedOut = new Promise((_resolve, reject) => {
+      timer = setTimeout(() => {
         if (this._callbacks.delete(id))
           reject(new Error(`Extension command '${method}' timed out after ${options.timeout}ms`));
-      }, options.timeout)),
-    ]);
+      }, options.timeout);
+    });
+    return Promise.race([promise, timedOut]).finally(() => clearTimeout(timer));
   }
 
   sendRaw(message: any): void {

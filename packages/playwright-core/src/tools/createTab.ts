@@ -11,7 +11,7 @@
 import { z } from '../mcpBundle';
 import { serverLog } from '../mcp/log';
 import { defineTool } from './tool';
-import { waitForNewPage } from './tabUtils';
+import { waitForBoundPage } from './tabUtils';
 const createTab = defineTool({
   capability: 'core-tabs',
   noTabRequired: true,
@@ -51,12 +51,9 @@ const createTab = defineTool({
     }
 
     const result = await fetchResponse.json();
-    const expectedTargetId: string | undefined = result.targetInfo?.targetId;
-    serverLog('lifecycle', `createTab: relay success tabId=${result.tabId} targetId=${expectedTargetId ?? 'unknown'} sessionId=${context.id}`);
+    serverLog('lifecycle', `createTab: relay success tabId=${result.tabId} targetId=${result.targetInfo?.targetId ?? 'unknown'} sessionId=${context.id}`);
 
-    // Wait for the Page to materialize via CDP event routing.
-    const pagesBefore = new Set(context.tabs().map(t => t.page));
-    await waitForNewPage(context, pagesBefore, 10000, `createTab(tabId=${result.tabId})`);
+    await waitForBoundPage(context, result.targetInfo?.targetId, 10000, `createTab(tabId=${result.tabId})`);
 
     response.setIncludeSnapshot();
     response.addTextResult(`Created tab ${result.tabId}.\nURL: ${result.url}`);

@@ -19,6 +19,7 @@ import { defineTool } from './tool';
 
 const downloadFile = defineTool({
   capability: 'downloads',
+  noTabRequired: true,
   schema: {
     name: 'browser_download_file',
     title: 'Download file',
@@ -66,6 +67,7 @@ const downloadFile = defineTool({
 
 const downloadList = defineTool({
   capability: 'downloads',
+  noTabRequired: true,
   schema: {
     name: 'browser_download_list',
     title: 'List downloads',

@@ -330,6 +330,8 @@ describe('CDPRelayServer — Wave 1', () => {
       const payload = JSON.stringify({
         method: 'forwardCDPEvent',
         params: {
+          sessionId: 'disconnected-session',
+          tabId: 1,
           method: 'Network.dataReceived',
           params: { data: `event-${i}-${'x'.repeat(100)}` },
         },
@@ -943,6 +945,7 @@ describe('CDPRelayServer — Multi-Client', () => {
       method: 'forwardCDPEvent',
       params: {
         sessionId: sessionA,
+        tabId: 77,
         method: 'Runtime.consoleAPICalled',
         params: { type: 'log', args: [] },
       },
@@ -1057,6 +1060,8 @@ describe('CDPRelayServer — Multi-Client', () => {
     // Extension responds to each forwardCDPCommand with the expression as result
     ext.on('message', (data: WebSocket.RawData) => {
       const msg = JSON.parse(data.toString());
+      if (msg.method === 'attachToTab')
+        ext.send(JSON.stringify({ id: msg.id, result: { tabId: msg.params.tabId, targetInfo: { type: 'page', targetId: `target-${msg.params.tabId}` } } }));
       if (msg.method === 'forwardCDPCommand') {
         // Small delay to simulate async processing
         setTimeout(() => {
@@ -1069,8 +1074,10 @@ describe('CDPRelayServer — Multi-Client', () => {
     });
 
     const mc = new MultiClientHelper(harness);
-    await mc.connectClient('A');
-    await mc.connectClient('B');
+    await mc.connectClientWithSessionId('A', 'sess-A');
+    await mc.connectClientWithSessionId('B', 'sess-B');
+    await harness.relay.attachTab('sess-A', 1);
+    await harness.relay.attachTab('sess-B', 2);
 
     // Fire simultaneously
     mc.wsFor('A')!.send(JSON.stringify({ id: 1, method: 'Runtime.evaluate', params: { expression: 'fromA' } }));
@@ -1185,6 +1192,7 @@ describe('CDPRelayServer — sessionId routing', () => {
       method: 'forwardCDPEvent',
       params: {
         sessionId: sessionIds[0],
+        tabId: harness.relay.activeSessions().find(s => s.sessionId === sessionIds[0])!.tab!.tabId,
         method: 'DOM.documentUpdated',
         params: {},
       },
@@ -1380,65 +1388,53 @@ describe('CDPRelayServer — Tab-Centric Model', () => {
     ext.on('message', (data: WebSocket.RawData) => {
       const msg = JSON.parse(data.toString());
       if (msg.method === 'attachToTab') {
-        // First call: no bump. Second call: bump session A.
-        const bumpedSessionId = msg.params.sessionId === 'session-B' ? 'session-A' : undefined;
+        // The extension reports the session it displaces before it answers.
+        if (msg.params.sessionId === 'session-B')
+          ext.send(JSON.stringify({ method: 'bindingDetached', params: { sessionId: 'session-A', tabId: 42, reason: 'bumped' } }));
         ext.send(JSON.stringify({
           id: msg.id,
           result: {
-            targetInfo: { type: 'page', url: 'https://example.com', title: 'Example' },
+            targetInfo: { type: 'page', targetId: 'target-42', url: 'https://example.com', title: 'Example' },
             tabId: msg.params.tabId ?? 42,
-            bumpedSessionId,
           },
         }));
       }
     });
 
     const mc = new MultiClientHelper(harness);
-    const wsA = await mc.connectClient('A');
-    const wsB = await mc.connectClient('B');
-    void wsB;
+    await mc.connectClientWithSessionId('A', 'session-A');
+    await mc.connectClientWithSessionId('B', 'session-B');
+    await harness.relay.attachTab('session-A', 42);
 
-    // Session A triggers auto-attach → gets tab 42
-    wsA.send(JSON.stringify({ id: 1, method: 'Target.setAutoAttach', params: {} }));
-    await sleep(50);
-
-    // Now session B calls attachTab to steal tab 42
     await harness.relay.attachTab('session-B', 42);
-
-    // Wait for bump notification to propagate
     await sleep(50);
 
-    // Client A should have received a Target.detachedFromTarget notification
-    const aMessages = mc.messagesFor('A');
-    const detachNotification = aMessages.find(m => m.method === 'Target.detachedFromTarget');
-    void detachNotification;
-    // The bump notification is sent to the session matching bumpedSessionId.
-    // Since 'session-A' is the relay-generated sessionId (which is actually the
-    // UUID assigned to client A), we check that the mechanism works by looking
-    // for any detach notification sent to ANY client
-    // The exact routing depends on the relay's internal sessionId mapping
+    expect(mc.messagesFor('A').filter(m => m.method === 'Target.detachedFromTarget')).toMatchObject([
+      { params: { sessionId: 'session-session-A', targetId: 'target-42' } },
+    ]);
+    const sessions = harness.relay.activeSessions();
+    expect(sessions.find(s => s.sessionId === 'session-A')?.tab).toBeNull();
+    expect(sessions.find(s => s.sessionId === 'session-B')?.tab?.tabId).toBe(42);
   });
 
-  it('attachTab to non-existing session creates bump notification with correct sessionIds', async () => {
+  it('a detach reported for a session without a client does not disturb an attach', async () => {
     const ext = await harness.connectExtension();
     ext.on('message', (data: WebSocket.RawData) => {
       const msg = JSON.parse(data.toString());
       if (msg.method === 'attachToTab') {
+        ext.send(JSON.stringify({ method: 'bindingDetached', params: { sessionId: 'nonexistent-session', tabId: 42, reason: 'bumped' } }));
         ext.send(JSON.stringify({
           id: msg.id,
           result: {
             targetInfo: { type: 'page', url: 'https://example.com' },
             tabId: msg.params.tabId ?? 42,
-            bumpedSessionId: 'nonexistent-session',
           },
         }));
       }
     });
 
-    // No client to receive the bump — should not crash
     const result = await harness.relay.attachTab('new-session', 42);
     expect(result.tabId).toBe(42);
-    expect(result.bumpedSessionId).toBe('nonexistent-session');
   });
 
   it('/sessions HTTP endpoint returns active sessions', async () => {
@@ -1611,18 +1607,17 @@ describe('CDPRelayServer — Tab-Centric Model', () => {
       const aSessionBefore = sessionsBefore.find(s => s.sessionId === relaySessionA);
       expect(aSessionBefore?.tab?.tabId).toBe(42);
 
-      // Now call attachTab with a bumped result pointing at A's session
-      // Temporarily override extension handler to return bumpedSessionId
+      // The extension reports the displaced session before it answers the attach
       ext2.removeAllListeners('message');
       ext2.on('message', (data: WebSocket.RawData) => {
         const msg = JSON.parse(data.toString());
         if (msg.method === 'attachToTab') {
+          ext2.send(JSON.stringify({ method: 'bindingDetached', params: { sessionId: relaySessionA, tabId: 42, reason: 'bumped' } }));
           ext2.send(JSON.stringify({
             id: msg.id,
             result: {
               targetInfo: { type: 'page', url: 'https://example.com', title: 'Example' },
               tabId: 42,
-              bumpedSessionId: relaySessionA,
             },
           }));
         }
@@ -1685,6 +1680,7 @@ describe('CDPRelayServer — Tab-Centric Model', () => {
         method: 'forwardCDPEvent',
         params: {
           sessionId: before[0].sessionId,
+          tabId: 77,
           method: 'Target.targetInfoChanged',
           params: { targetInfo: { type: 'page', url: 'https://example.com', title: 'Example Domain' } },
         },
@@ -1742,6 +1738,7 @@ describe('CDPRelayServer — Tab-Centric Model', () => {
         method: 'forwardCDPEvent',
         params: {
           sessionId: before[0].sessionId,
+          tabId: 88,
           method: 'Page.frameNavigated',
           params: { frame: { id: 'MAIN', url: 'https://httpbin.org/', mimeType: 'text/html' }, type: 'Navigation' },
         },
@@ -1756,6 +1753,7 @@ describe('CDPRelayServer — Tab-Centric Model', () => {
         method: 'forwardCDPEvent',
         params: {
           sessionId: before[0].sessionId,
+          tabId: 88,
           method: 'Page.frameNavigated',
           params: { frame: { id: 'IFRAME1', parentId: 'MAIN', url: 'https://ads.example.com/', mimeType: 'text/html' }, type: 'Navigation' },
         },
@@ -2454,7 +2452,7 @@ describe('CDPRelayServer -- Dormant Sessions', () => {
     expect(sessA!.tab?.tabId).toBe(42);
   });
 
-  it('dormant: tabClosed event cleans up dormant session', async () => {
+  it('dormant: a reported detach cleans up the dormant session', async () => {
     const ext = await harness.connectExtension();
     const extMessages: any[] = [];
     wireExtension(ext, extMessages, 42);
@@ -2475,8 +2473,7 @@ describe('CDPRelayServer -- Dormant Sessions', () => {
     const dormantSessions = harness.relay.activeSessions();
     expect(dormantSessions.find(s => s.sessionId === 'sess-A')?.status).toBe('dormant');
 
-    // Simulate tabClosed from extension
-    ext.send(JSON.stringify({ method: 'tabClosed', params: { sessionId: 'sess-A', tabId: 42 } }));
+    ext.send(JSON.stringify({ method: 'bindingDetached', params: { sessionId: 'sess-A', tabId: 42, reason: 'closed' } }));
     await sleep(30);
 
     // Dormant entry should be cleaned up
@@ -2484,7 +2481,7 @@ describe('CDPRelayServer -- Dormant Sessions', () => {
     expect(afterClose.find(s => s.sessionId === 'sess-A')).toBeUndefined();
   });
 
-  it('dormant: tabClosed during grace prevents dormant entry', async () => {
+  it('dormant: a detach reported during grace prevents the dormant entry', async () => {
     const ext = await harness.connectExtension();
     const extMessages: any[] = [];
     wireExtension(ext, extMessages, 42);
@@ -2499,8 +2496,7 @@ describe('CDPRelayServer -- Dormant Sessions', () => {
     // Wait 30ms (still within 100ms grace)
     await sleep(30);
 
-    // Send tabClosed from extension while in grace
-    ext.send(JSON.stringify({ method: 'tabClosed', params: { sessionId: 'sess-A', tabId: 42 } }));
+    ext.send(JSON.stringify({ method: 'bindingDetached', params: { sessionId: 'sess-A', tabId: 42, reason: 'closed' } }));
 
     // Wait past original grace TTL
     await sleep(120);
@@ -2745,7 +2741,7 @@ describe('CDPRelayServer — Stale Page After Bump', () => {
 
   /**
    * Wire extension that tracks tab ownership per session and supports bump semantics.
-   * When session B attaches to session A's tab, returns bumpedSessionId: A's sessionId.
+   * When session B attaches to session A's tab, it reports A's detach before answering.
    */
   function wireExtensionWithBump(ext: WebSocket, extMessages: any[]): void {
     // Track which sessionId owns which tabId
@@ -2773,14 +2769,14 @@ describe('CDPRelayServer — Stale Page After Bump', () => {
         const sessionId = msg.params?.sessionId as string;
         const tabId = msg.params?.tabId as number;
         const previousOwner = tabOwners.get(tabId);
-        const bumpedSessionId = previousOwner && previousOwner !== sessionId ? previousOwner : undefined;
+        if (previousOwner && previousOwner !== sessionId)
+          ext.send(JSON.stringify({ method: 'bindingDetached', params: { sessionId: previousOwner, tabId, reason: 'bumped' } }));
         tabOwners.set(tabId, sessionId);
         ext.send(JSON.stringify({
           id: msg.id,
           result: {
             targetInfo: { type: 'page', url: 'https://example.com', title: 'Example', targetId: `target-${tabId}` },
             tabId,
-            bumpedSessionId,
           },
         }));
       }
@@ -2850,9 +2846,6 @@ describe('CDPRelayServer — Stale Page After Bump', () => {
     //   const crPage = this._crPages.get(targetId);
     // Without targetId, crPage is undefined, didClose() never fires,
     // and the stale Page hangs all subsequent operations.
-    //
-    // This assertion FAILS with the current relay code — proving the bug.
-    // _notifyBumpedClient sends { sessionId, reason } but no targetId.
     expect(detachNotification.params).toHaveProperty('targetId');
     expect(detachNotification.params.targetId).toBeTruthy();
   });
@@ -2899,7 +2892,6 @@ describe('CDPRelayServer — Stale Page After Bump', () => {
         (m: any) => m.method === 'Target.detachedFromTarget'
     );
     expect(detachNotification).toBeDefined();
-    // This FAILS: no targetId in the detach event at all
     expect(detachNotification.params.targetId).toBe(originalTargetId);
   });
 });
@@ -3135,7 +3127,13 @@ describe('CDPRelayServer — MV3 keepalive', () => {
 
   it('keepalive does not interfere with normal CDP messages', async () => {
     const ext = await harness.connectExtension();
-    const pw = await harness.connectPlaywright();
+    ext.on('message', (data: WebSocket.RawData) => {
+      const msg = JSON.parse(data.toString());
+      if (msg.method === 'attachToTab')
+        ext.send(JSON.stringify({ id: msg.id, result: { tabId: msg.params.tabId, targetInfo: { type: 'page', targetId: 'target-5' } } }));
+    });
+    const pw = await harness.connectPlaywrightWithSessionId('sess-K');
+    await harness.relay.attachTab('sess-K', 5);
 
     const pwMessages: any[] = [];
     pw.on('message', (data: WebSocket.RawData) => {
@@ -3146,7 +3144,7 @@ describe('CDPRelayServer — MV3 keepalive', () => {
     ext.send(JSON.stringify({ type: 'keepalive' }));
     ext.send(JSON.stringify({
       method: 'forwardCDPEvent',
-      params: { method: 'Page.loadEventFired', params: { timestamp: 123 } },
+      params: { sessionId: 'sess-K', tabId: 5, method: 'Page.loadEventFired', params: { timestamp: 123 } },
     }));
     ext.send(JSON.stringify({ type: 'keepalive' }));
     await sleep(30);

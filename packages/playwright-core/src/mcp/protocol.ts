@@ -32,7 +32,8 @@ export type ExtensionCommand = {
   };
   'forwardCDPCommand': {
     params: {
-      sessionId?: string,
+      sessionId: string,
+      tabId: number,
       method: string,
       cdpSessionId?: string,
       params?: any,
@@ -40,17 +41,20 @@ export type ExtensionCommand = {
   };
 };
 
+export type BindingDetachReason = 'moved' | 'bumped' | 'closed' | 'lost';
+
 export type ExtensionEvents = {
   'forwardCDPEvent': {
     params: {
-      sessionId?: string,
+      sessionId: string,
+      tabId: number,
       method: string,
       cdpSessionId?: string,
       params?: any,
     };
   };
-  'tabClosed': {
-    params: { sessionId: string; tabId: number };
+  'bindingDetached': {
+    params: { sessionId: string; tabId: number; reason: BindingDetachReason };
   };
   'debuggerReattached': {
     params: { tabId: number; sessionId: string };

@@ -11,7 +11,7 @@
 import { z } from '../mcpBundle';
 import { serverLog } from '../mcp/log';
 import { defineTool } from './tool';
-import { waitForNewPage } from './tabUtils';
+import { waitForBoundPage } from './tabUtils';
 const attachTab = defineTool({
   capability: 'core-tabs',
   noTabRequired: true,
@@ -51,20 +51,15 @@ const attachTab = defineTool({
     }
 
     const result = await fetchResponse.json();
-    const expectedTargetId: string | undefined = result.targetInfo?.targetId;
-    serverLog('lifecycle', `attachTab: relay success tabId=${params.tabId} targetId=${expectedTargetId ?? 'unknown'} sessionId=${context.id}`);
+    serverLog('lifecycle', `attachTab: relay success tabId=${params.tabId} targetId=${result.targetInfo?.targetId ?? 'unknown'} sessionId=${context.id}`);
 
-    // Wait for the Page to materialize via CDP event routing.
-    const pagesBefore = new Set(context.tabs().map(t => t.page));
-    await waitForNewPage(context, pagesBefore, 10000, `attachTab(tabId=${params.tabId})`);
+    await waitForBoundPage(context, result.targetInfo?.targetId, 10000, `attachTab(tabId=${params.tabId})`);
 
     const lines = [`Attached to tab ${params.tabId}.`];
     if (result.targetInfo?.url)
       lines.push(`URL: ${result.targetInfo.url}`);
     if (result.targetInfo?.title)
       lines.push(`Title: ${result.targetInfo.title}`);
-    if (result.bumpedSessionId)
-      lines.push(`Previous session ${result.bumpedSessionId} was detached.`);
 
     response.addTextResult(lines.join('\n'));
   },

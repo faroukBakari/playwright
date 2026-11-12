@@ -41,6 +41,7 @@ import { installRelayHTTPEndpoints } from './relayHttpEndpoints';
 import { logUnhandledError, serverLog } from './log';
 
 import { CDPCommandRouter } from './cdpCommandRouter';
+import { SessionBinding } from './sessionBinding';
 import { CDPRelayStateMachine, DEFAULT_GRACE_TTL, DEFAULT_EXTENSION_GRACE_TTL, DEFAULT_GRACE_BUFFER_MAX_BYTES } from './cdpRelayStateMachine';
 import type { RelayState, ClientSession, DormantSession, CDPRelayOptions, CDPResponse, CDPCommand } from './cdpRelayTypes';
 import type { ClientInfo } from './sdk/server';
@@ -54,6 +55,7 @@ const debugLogger = debug('pw:mcp:relay');
 
 const DEFAULT_EXTENSION_COMMAND_TIMEOUT = 10_000;
 const DEFAULT_MAX_CONCURRENT_CLIENTS = 4;
+const EXTENSION_OUTDATED = 'The browser extension is older than the server: reload it in chrome://extensions, then retry.';
 
 export class CDPRelayServer {
   private _wsHost: string;
@@ -78,9 +80,6 @@ export class CDPRelayServer {
   private _playwrightReconnectCount = 0;
   private readonly _maxPlaywrightReconnects = 3;
 
-  // Download path override — browser-side path for Browser.setDownloadBehavior
-  private readonly _downloadsPath: string | undefined;
-
   // Monotonic counter for stale WS close detection
   private _nextConnectionId = 0;
 
@@ -90,6 +89,12 @@ export class CDPRelayServer {
   // CDP command router (extracted)
   private _commandRouter!: CDPCommandRouter;
 
+  // Sole writer of each session's tab binding (extracted)
+  private _binding!: SessionBinding;
+
+  // Set when the connected extension sends traffic without a tab; cleared by the next extension socket.
+  private _extensionMismatch: string | null = null;
+
   // Sessions marked for immediate cleanup — skip per-session grace on WS close.
   // Set by the server layer when SESSION_IDLE_TTL fires (MCP session permanently disposed).
   private _immediateCleanupSessions = new Set<string>();
@@ -98,7 +103,6 @@ export class CDPRelayServer {
     this._wsHost = addressToString(server.address(), { protocol: 'ws' });
     this._extensionCommandTimeout = options?.extensionCommandTimeout ?? DEFAULT_EXTENSION_COMMAND_TIMEOUT;
     this._maxConcurrentClients = options?.maxConcurrentClients ?? DEFAULT_MAX_CONCURRENT_CLIENTS;
-    this._downloadsPath = options?.downloadsPath;
     this._sessionGrace = new SessionGraceManager(options?.sessionGraceTTL ?? 0);
     this._stateMachine = new CDPRelayStateMachine({
       graceTTL: options?.graceTTL ?? DEFAULT_GRACE_TTL,
@@ -123,14 +127,18 @@ export class CDPRelayServer {
     this._resetExtensionConnection();
     this._sidebandRegistry = new SidebandRegistry(() => this._extensionConnection);
     this._sidebandRegistry.installHTTP(server);
+    this._binding = new SessionBinding({
+      sendToClient: (session, msg) => this._sendToClient(session, msg),
+    });
     this._commandRouter = new CDPCommandRouter({
       getClient: sid => this._clients.get(sid),
       getExtensionConnection: () => this._extensionConnection,
+      getExtensionMismatch: () => this._extensionMismatch,
       getState: () => this._stateMachine.state,
       getExtensionCommandTimeout: () => this._extensionCommandTimeout,
-      getDownloadsPath: () => this._downloadsPath,
       sendToClient: (session, msg) => this._sendToClient(session, msg),
       bufferEvent: data => this._stateMachine.bufferEvent(data),
+      binding: this._binding,
     });
     installRelayHTTPEndpoints(server, this);
     this._wss = new wsServer({ server });
@@ -221,7 +229,7 @@ export class CDPRelayServer {
     }
   }
 
-  private _createWsSession(sessionId: string, clientWs: WebSocket, overrides?: Partial<Pick<ClientSession, 'cdpSessionId' | 'targetInfo' | 'tabId' | 'downloadBehavior'>>): ClientSession {
+  private _createWsSession(sessionId: string, clientWs: WebSocket, overrides?: Partial<Pick<ClientSession, 'cdpSessionId' | 'targetInfo' | 'tabId'>>): ClientSession {
     const connectionId = ++this._nextConnectionId;
     return {
       sessionId,
@@ -239,7 +247,6 @@ export class CDPRelayServer {
       cdpSessionId: overrides?.cdpSessionId ?? null,
       targetInfo: overrides?.targetInfo ?? null,
       tabId: overrides?.tabId ?? null,
-      downloadBehavior: overrides?.downloadBehavior ?? null,
     };
   }
 
@@ -302,7 +309,6 @@ export class CDPRelayServer {
         cdpSessionId: this._lastDisconnectedSession?.cdpSessionId ?? null,
         targetInfo: this._lastDisconnectedSession?.targetInfo ?? null,
         tabId: this._lastDisconnectedSession?.tabId ?? null,
-        downloadBehavior: this._lastDisconnectedSession?.downloadBehavior ?? null,
       });
       this._clients.set(sessionId, session);
       this._lastDisconnectedSession = null;
@@ -402,8 +408,7 @@ export class CDPRelayServer {
 
       serverLog('session', `grace: sessionId=${sessionId} entered=${enteredGrace}${skipGrace ? ' (skipped: idle disposal)' : ''} cdpSessionId=${session.cdpSessionId ?? 'null'} tabId=${session.tabId ?? 'null'}`);
 
-      // If session had no tab binding (cdpSessionId null), do immediate cleanup as before
-      if (!enteredGrace && session.cdpSessionId != null && this._extensionConnection)
+      if (!enteredGrace && session.tabId != null && this._extensionConnection)
         this._extensionConnection.send('detachTab', { sessionId }).catch(e => serverLog('warn', `detachTab failed for session ${sessionId}`, e));
 
 
@@ -465,9 +470,11 @@ export class CDPRelayServer {
     this._extensionConnectionPromise.resolve();
     this._extensionConnection.onclose = this._handleExtensionClose.bind(this);
 
-    // Collect sessions that need recovery (those that went through Target.setAutoAttach)
+    this._extensionMismatch = null;
+
+    // Only sessions bound to a tab have something to recover.
     const sessionsToRecover = [...this._clients.values()]
-        .filter(s => s.cdpSessionId != null)
+        .filter(s => s.tabId != null && s.cdpSessionId != null)
         .map(s => ({ sessionId: s.sessionId, cdpSessionId: s.cdpSessionId! }));
 
     if (sessionsToRecover.length > 0) {
@@ -538,6 +545,7 @@ export class CDPRelayServer {
       extWs.close(1000, 'Another extension connection already established');
       return;
     }
+    this._extensionMismatch = null;
     this._extensionConnection = new ExtensionConnection(extWs);
     this._extensionConnection.onclose = this._handleExtensionClose.bind(this);
     this._extensionConnection.onmessage = this._handleExtensionMessage.bind(this);
@@ -565,36 +573,13 @@ export class CDPRelayServer {
     switch (method) {
       case 'forwardCDPEvent': {
         const fwdParams = params as ExtensionEvents['forwardCDPEvent']['params'];
-        // Route by sessionId directly, then single-client fallback
-        let targetSession: ClientSession | undefined;
-        if (fwdParams.sessionId)
-          targetSession = this._clients.get(fwdParams.sessionId);
-        if (!targetSession && this._clients.size === 1)
-          targetSession = this._clients.values().next().value;
-
-        // Track URL changes so /sessions reflects the current page
-        if (targetSession) {
-          if (fwdParams.method === 'Target.targetInfoChanged' && fwdParams.params?.targetInfo)
-            targetSession.targetInfo = { ...targetSession.targetInfo, ...fwdParams.params.targetInfo };
-          else if (fwdParams.method === 'Page.frameNavigated' && fwdParams.params?.frame && !fwdParams.params.frame.parentId)
-            targetSession.targetInfo = { ...targetSession.targetInfo, url: fwdParams.params.frame.url };
+        if (typeof fwdParams.tabId !== 'number') {
+          if (!this._extensionMismatch)
+            serverLog('critical', `extension event ${fwdParams.method} carries no tab: ${EXTENSION_OUTDATED}`);
+          this._extensionMismatch = EXTENSION_OUTDATED;
+          break;
         }
-
-        if (fwdParams.method === 'Page.downloadWillBegin' || fwdParams.method === 'Page.downloadProgress')
-          serverLog('download', `CDP event ${fwdParams.method}: sessionId=${targetSession?.sessionId || '(unknown)'}, ${JSON.stringify(fwdParams.params)}`);
-
-        // Map cdpSessionId back to the client's cdpSessionId for the CDP response
-        const cdpSessionId = fwdParams.cdpSessionId || targetSession?.cdpSessionId || undefined;
-        const message: CDPResponse = {
-          sessionId: cdpSessionId,
-          method: fwdParams.method,
-          params: fwdParams.params
-        };
-        if (this._stateMachine.state === 'grace')
-          this._stateMachine.bufferEvent(JSON.stringify(message));
-        else if (targetSession)
-          this._sendToClient(targetSession, message);
-
+        this._commandRouter.forwardEvent(fwdParams);
         break;
       }
       case 'debuggerReattached': {
@@ -614,31 +599,15 @@ export class CDPRelayServer {
         }
         break;
       }
-      case 'tabClosed': {
-        const closedSessionId = (params as any).sessionId as string;
-        const closedTabId = (params as any).tabId as number;
-        this._dormantSessions.delete(closedSessionId);
-        this._sessionGrace.cancel(closedSessionId);
-        debugLogger(`tabClosed: session ${closedSessionId} tab ${closedTabId} cleaned up`);
-        serverLog('lifecycle', `tabClosed: session ${closedSessionId} tab ${closedTabId} — cleaned up dormant/grace`);
-
-        // Update active session state if the closed tab belongs to it
-        const activeSession = this._clients.get(closedSessionId);
-        if (activeSession && activeSession.tabId === closedTabId) {
-          activeSession.tabId = null;
-          activeSession.targetInfo = null;
-          serverLog('lifecycle', `tabClosed: active session ${closedSessionId} lost tab ${closedTabId}`);
-        } else {
-          // Fallback: find any session owning this tab by tabId
-          for (const [sid, s] of this._clients) {
-            if (s.tabId === closedTabId) {
-              s.tabId = null;
-              s.targetInfo = null;
-              serverLog('lifecycle', `tabClosed: active session ${sid} lost tab ${closedTabId} (by tabId match)`);
-              break;
-            }
-          }
-        }
+      case 'bindingDetached': {
+        const { sessionId, tabId, reason } = params as ExtensionEvents['bindingDetached']['params'];
+        this._dormantSessions.delete(sessionId);
+        this._sessionGrace.cancel(sessionId);
+        serverLog('lifecycle', `bindingDetached: session ${sessionId} tab ${tabId} (${reason})`);
+        // A report naming a tab the session has already left is stale.
+        const session = this._clients.get(sessionId);
+        if (session && session.tabId === tabId)
+          this._binding.apply(session, null, `tab ${tabId} ${reason}`);
         break;
       }
     }
@@ -653,50 +622,12 @@ export class CDPRelayServer {
   }
 
   async createTab(sessionId: string, url?: string, options?: { timeout?: number }): Promise<any> {
-    if (!this._extensionConnection)
-      throw new Error('Extension not connected');
-    const result = await this._extensionConnection.send('createTab', { sessionId, url } as any, { timeout: options?.timeout ?? this._extensionCommandTimeout });
-    // Update the ClientSession if it already exists
-    const session = this._clients.get(sessionId);
-    if (session) {
-      if (session.tabId !== null && session.tabId !== result.tabId && session.cdpSessionId) {
-        serverLog('session', `self-detach: ${sessionId} replacing tab ${session.tabId} with new tab ${result.tabId}`);
-        this._commandRouter.sendTabDetached(session, `Session ${sessionId} replacing tab ${session.tabId} with new tab ${result.tabId}`);
-      }
-      session.tabId = result.tabId ?? null;
-      session.targetInfo = result.targetInfo ?? { type: 'page', url: result.url ?? url ?? '', title: '' };
-      session.cdpSessionId = result.cdpSessionId ?? session.cdpSessionId;
-      // Notify Playwright about the new tab — needed for deferred tab creation
-      // where Target.setAutoAttach didn't create a tab initially.
-      this._commandRouter.sendTabAttached(session);
-    }
-    return result;
+    return await this._commandRouter.createTab(sessionId, url, options);
   }
 
   async attachTab(sessionId: string, tabId: number, options?: { timeout?: number }): Promise<any> {
-    if (!this._extensionConnection)
-      throw new Error('Extension not connected');
     serverLog('session', `attachTab: sessionId=${sessionId} tabId=${tabId} clients=${this._clients.size}/${this._maxConcurrentClients} sessionExists=${this._clients.has(sessionId)}`);
-    const result = await this._extensionConnection.send('attachToTab', { sessionId, tabId } as any, { timeout: options?.timeout ?? this._extensionCommandTimeout });
-    // Notify bumped client
-    if (result.bumpedSessionId)
-      this._commandRouter.notifyBumpedClient(result.bumpedSessionId, sessionId, tabId);
-    // Update the ClientSession if it already exists
-    const session = this._clients.get(sessionId);
-    if (session) {
-      if (session.tabId !== null && session.tabId !== tabId && session.cdpSessionId) {
-        serverLog('session', `self-detach: ${sessionId} leaving tab ${session.tabId} for tab ${tabId}`);
-        this._commandRouter.sendTabDetached(session, `Session ${sessionId} switching from tab ${session.tabId} to tab ${tabId}`);
-      }
-      session.tabId = result.tabId ?? null;
-      session.targetInfo = result.targetInfo ?? null;
-      if (result.cdpSessionId)
-        session.cdpSessionId = result.cdpSessionId;
-      // Notify Playwright about the attached tab — needed for deferred tab creation
-      // where Target.setAutoAttach didn't create a tab initially.
-      this._commandRouter.sendTabAttached(session);
-    }
-    return result;
+    return await this._commandRouter.attachTab(sessionId, tabId, options);
   }
 
   async recycleTab(sessionId: string, options?: { timeout?: number }): Promise<any> {
@@ -751,7 +682,6 @@ export class CDPRelayServer {
       cdpSessionId: null,
       targetInfo: null,
       tabId: null,
-      downloadBehavior: null,
     };
     this._clients.set(sessionId, session);
     this._stateMachine.state = 'connected';
@@ -785,8 +715,7 @@ export class CDPRelayServer {
     this._clients.delete(sessionId);
     serverLog('session', `in-process disconnect: sessionId=${sessionId} clients=${this._clients.size}/${this._maxConcurrentClients}`);
 
-    // Detach tab if session had one
-    if (session.cdpSessionId != null && this._extensionConnection)
+    if (session.tabId != null && this._extensionConnection)
       this._extensionConnection.send('detachTab', { sessionId }).catch(e => serverLog('warn', `detachTab failed for session ${sessionId}`, e));
 
     // State transitions (same as WS close handler)

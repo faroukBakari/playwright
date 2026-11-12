@@ -3,9 +3,44 @@
  */
 
 import { serverLog } from '../mcp/log';
+import { targetIdOf } from './context';
 import type { Context } from './context';
 import type { Tab } from './tab';
 import type { Page } from '../client/page';
+
+/**
+ * Wait until the session's current page is the one of the tab the relay
+ * bound. Returns at once when it already is, as on a same-tab attach.
+ *
+ * @param expectedTargetId - Target the relay create or attach reply names
+ * @param timeoutMs - Maximum time to wait
+ * @param label - Log prefix for lifecycle messages (e.g. 'attachTab', 'createTab')
+ */
+export async function waitForBoundPage(
+  context: Context, expectedTargetId: string | undefined, timeoutMs: number, label: string
+): Promise<Tab> {
+  if (!expectedTargetId)
+    throw new Error(`${label}: Relay reply has no target id`);
+  const boundTab = () => {
+    const tab = context.currentTab();
+    return tab && targetIdOf(tab.page) === expectedTargetId ? tab : undefined;
+  };
+
+  const deadline = Date.now() + timeoutMs;
+  let tab = boundTab();
+  while (!tab && Date.now() < deadline) {
+    await new Promise(r => setTimeout(r, 100));
+    tab = boundTab();
+  }
+
+  if (!tab) {
+    serverLog('warn', `${label}: page of target ${expectedTargetId} did not materialize — pagesNow=${context.tabs().length}`);
+    throw new Error(`${label}: Playwright page did not materialize — CDP event routing may be broken for this session. Try restarting the server.`);
+  }
+
+  serverLog('lifecycle', `${label}: page of target ${expectedTargetId} is current, pagesNow=${context.tabs().length}`);
+  return tab;
+}
 
 /**
  * Wait for a new Page to materialize via CDP event routing.

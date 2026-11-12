@@ -15,26 +15,32 @@
  */
 
 /**
- * CDP command interpretation and extension forwarding.
- * Owns: handleMessage, _handleCDPCommand, _forwardToExtension,
- *       sendTabAttached, notifyBumpedClient.
+ * CDP command interpretation, extension forwarding in both directions, and
+ * the tab commands (create, attach, recycle) that change a session's binding.
  */
 
 import { debug } from '../utilsBundle';
 import { serverLog } from './log';
+import { boundTabFrom } from './sessionBinding';
 import type { ExtensionConnection } from './extensionConnection';
+import type { ExtensionEvents } from './protocol';
 import type { ClientSession, CDPCommand, CDPResponse, RelayState } from './cdpRelayTypes';
+import type { SessionBinding } from './sessionBinding';
 
 const debugLogger = debug('pw:mcp:relay');
+
+// The largest request budget a tool call may ask for (600 s) plus the client buffer (5 s).
+const FORWARDED_COMMAND_CEILING_MS = 605_000;
 
 export interface CommandRouterDeps {
   getClient(sessionId: string): ClientSession | undefined;
   getExtensionConnection(): ExtensionConnection | null;
+  getExtensionMismatch(): string | null;
   getState(): RelayState;
   getExtensionCommandTimeout(): number;
-  getDownloadsPath(): string | undefined;
   sendToClient(session: ClientSession, message: CDPResponse): void;
   bufferEvent(data: string): void;
+  binding: SessionBinding;
 }
 
 export class CDPCommandRouter {
@@ -83,13 +89,7 @@ export class CDPCommandRouter {
         };
       }
       case 'Browser.setDownloadBehavior': {
-        // Browser-domain commands can't go through tab-scoped chrome.debugger.
-        // Store the params and send Page.setDownloadBehavior after tab attachment.
-        const downloadPath = this._deps.getDownloadsPath() || params?.downloadPath;
-        serverLog('download', `Browser.setDownloadBehavior intercepted: behavior=${params?.behavior}, incomingPath=${params?.downloadPath || '(none)'}, overridePath=${this._deps.getDownloadsPath() || '(none)'}, effectivePath=${downloadPath || '(none)'}, sessionId=${sessionId}`);
-        const session = this._deps.getClient(sessionId);
-        if (session)
-          session.downloadBehavior = { behavior: params?.behavior, downloadPath };
+        // Chrome's extension debugger rejects download behavior at every scope; downloads use the chrome.downloads API.
         return {};
       }
       case 'Target.setAutoAttach': {
@@ -103,15 +103,7 @@ export class CDPCommandRouter {
           const session = this._deps.getClient(sessionId);
           if (session?.targetInfo && session.tabId != null) {
             debugLogger('Returning cached target info for graced session');
-            session.cdpSessionId = session.cdpSessionId ?? `session-${sessionId}`;
-            this._deps.sendToClient(session, {
-              method: 'Target.attachedToTarget',
-              params: {
-                sessionId: session.cdpSessionId,
-                targetInfo: { ...session.targetInfo, attached: true },
-                waitingForDebugger: false
-              }
-            });
+            this._deps.binding.announce(session);
             return {};
           }
         }
@@ -121,15 +113,12 @@ export class CDPCommandRouter {
         const preSession = this._deps.getClient(sessionId);
         if (preSession?.tabId != null) {
           // Re-attach to the known tab (dormant recovery path)
-          const attachResult = await this._deps.getExtensionConnection()!.send('attachToTab', { sessionId, tabId: preSession.tabId } as any, { timeout: this._deps.getExtensionCommandTimeout() });
+          const tabId = preSession.tabId;
+          const attachResult = await this._deps.getExtensionConnection()!.send('attachToTab', { sessionId, tabId }, { timeout: this._deps.getExtensionCommandTimeout() });
           const session = this._deps.getClient(sessionId);
           if (!session)
             return {};
-          if (attachResult.bumpedSessionId)
-            this.notifyBumpedClient(attachResult.bumpedSessionId, sessionId, attachResult.tabId);
-          session.targetInfo = attachResult.targetInfo;
-          session.tabId = attachResult.tabId ?? preSession.tabId;
-          this.sendTabAttached(session);
+          this._deps.binding.apply(session, boundTabFrom({ ...attachResult, tabId: attachResult.tabId ?? tabId }), `re-attached remembered tab ${tabId}`);
           return {};
         }
 
@@ -150,110 +139,96 @@ export class CDPCommandRouter {
     return await this._forwardToExtension(method, params, cdpSessionId, sessionId);
   }
 
-  private async _forwardToExtension(method: string, params: any, cdpSessionId: string | undefined, sessionId: string): Promise<any> {
-    if (!this._deps.getExtensionConnection())
-      throw new Error('Extension not connected');
-    // Strip the top-level cdpSessionId — it only exists between relay and Playwright client.
-    // Child sessions (iframes, workers) have their own cdpSessionId that passes through.
-    const session = this._deps.getClient(sessionId);
-    if (session?.cdpSessionId === cdpSessionId)
-      cdpSessionId = undefined;
-    return await this._deps.getExtensionConnection()!.send('forwardCDPCommand', { sessionId, cdpSessionId, method, params });
-  }
-
-  /**
-   * Send Target.attachedToTarget event to a Playwright client, notifying it
-   * that a tab is now available. Called when a tab is assigned to a session
-   * that previously had none (deferred tab creation).
-   */
-  sendTabAttached(session: ClientSession): void {
-    if (!session.targetInfo)
-      return;
-    session.cdpSessionId = session.cdpSessionId ?? `session-${session.sessionId}`;
-    debugLogger(`Sending Target.attachedToTarget for session ${session.sessionId} (tab ${session.tabId})`);
-    this._deps.sendToClient(session, {
-      method: 'Target.attachedToTarget',
-      params: {
-        sessionId: session.cdpSessionId,
-        targetInfo: { ...session.targetInfo, attached: true },
-        waitingForDebugger: false,
-      }
-    });
-    // Send deferred Page.setDownloadBehavior now that we have an attached tab.
-    // Browser.setDownloadBehavior can't go through tab-scoped chrome.debugger,
-    // so we convert to the Page-domain equivalent after tab attachment.
-    if (session.downloadBehavior && this._deps.getExtensionConnection()) {
-      const { behavior, downloadPath } = session.downloadBehavior;
-      serverLog('download', `Sending Page.setDownloadBehavior: behavior=${behavior}, downloadPath=${downloadPath || '(none)'}, sessionId=${session.sessionId}`);
-      this._deps.getExtensionConnection()!.send('forwardCDPCommand', {
-        sessionId: session.sessionId,
-        method: 'Page.setDownloadBehavior',
-        params: { behavior, downloadPath },
-      }).then(
-          result => serverLog('download', `Page.setDownloadBehavior OK: sessionId=${session.sessionId}, result=${JSON.stringify(result)}`),
-          err => serverLog('download', `Page.setDownloadBehavior FAILED: sessionId=${session.sessionId}, error=${err.message}`)
-      );
-    }
-  }
-
-  /**
-   * Tell a Playwright client that its current target is gone, so its page and
-   * CDP session are disposed before another target is announced.
-   */
-  sendTabDetached(session: ClientSession, reason: string): void {
-    this._deps.sendToClient(session, {
-      method: 'Target.detachedFromTarget',
-      params: {
-        sessionId: session.cdpSessionId,
-        targetId: session.targetInfo?.targetId,
-        reason,
-      }
-    });
-  }
-
   /**
    * Stop whatever is driving a session's page: retire its target, cycle the
    * debugger attachment on the same tab, then announce the target again.
    * A failure after the detach leaves the session unbound.
    */
   async recycleTab(sessionId: string, options?: { timeout?: number }): Promise<any> {
-    const extension = this._deps.getExtensionConnection();
-    if (!extension)
-      throw new Error('Extension not connected');
+    const extension = this._currentExtension();
     const session = this._deps.getClient(sessionId);
     if (!session || session.tabId == null)
       throw new Error(`Session ${sessionId} has no tab to recycle`);
     const tabId = session.tabId;
     const timeout = options?.timeout ?? this._deps.getExtensionCommandTimeout();
-    this.sendTabDetached(session, `Session ${sessionId} recycling tab ${tabId}`);
-    session.tabId = null;
-    session.targetInfo = null;
+    this._deps.binding.apply(session, null, `recycling tab ${tabId}`);
     await extension.send('detachTab', { sessionId }, { timeout });
-    const result = await extension.send('attachToTab', { sessionId, tabId } as any, { timeout });
-    session.tabId = result.tabId ?? null;
-    session.targetInfo = result.targetInfo ?? null;
-    this.sendTabAttached(session);
+    const result = await extension.send('attachToTab', { sessionId, tabId }, { timeout });
+    this._deps.binding.apply(session, boundTabFrom(result), `recycled tab ${tabId}`);
     serverLog('session', `recycle: ${sessionId} re-attached tab ${session.tabId}`);
     return result;
   }
 
-  notifyBumpedClient(bumpedSessionId: string, newSessionId: string, tabId: number): void {
-    const bumpedSession = this._deps.getClient(bumpedSessionId);
-    if (bumpedSession) {
-      serverLog('session', `bumped: ${bumpedSessionId} displaced by ${newSessionId} on tab ${tabId}`);
-      this._deps.sendToClient(bumpedSession, {
-        method: 'Target.detachedFromTarget',
-        params: {
-          sessionId: bumpedSession.cdpSessionId,
-          targetId: bumpedSession.targetInfo?.targetId,
-          reason: `Session displaced by ${newSessionId} on tab ${tabId}`,
-        }
-      });
-      // Clear the bumped client's CDP session so it can re-attach elsewhere
-      bumpedSession.cdpSessionId = null;
-      bumpedSession.targetInfo = null;
-      bumpedSession.tabId = null;
-      serverLog('session', `bump state cleared: sessionId=${bumpedSessionId} — cdpSessionId/targetInfo/tabId nulled, still in _clients (slot occupied until WS close)`);
+  async createTab(sessionId: string, url?: string, options?: { timeout?: number }): Promise<any> {
+    const result = await this._currentExtension().send('createTab', { sessionId, url }, { timeout: options?.timeout ?? this._deps.getExtensionCommandTimeout() });
+    const session = this._deps.getClient(sessionId);
+    if (session) {
+      const targetInfo = result.targetInfo ?? { type: 'page', url: result.url ?? url ?? '', title: '' };
+      this._deps.binding.apply(session, boundTabFrom({ tabId: result.tabId, targetInfo }), `created tab ${result.tabId}`);
     }
+    return result;
+  }
+
+  /**
+   * Attach a session to an existing tab. The extension reports the tab the
+   * session leaves and the session it displaces before it answers, so the
+   * reply only has to bind the new tab.
+   */
+  async attachTab(sessionId: string, tabId: number, options?: { timeout?: number }): Promise<any> {
+    const result = await this._currentExtension().send('attachToTab', { sessionId, tabId }, { timeout: options?.timeout ?? this._deps.getExtensionCommandTimeout() });
+    const session = this._deps.getClient(sessionId);
+    if (session)
+      this._deps.binding.apply(session, boundTabFrom(result), `attached tab ${tabId}`);
+    return result;
+  }
+
+  /** Deliver a tab-stamped extension event to the session bound to that tab. */
+  forwardEvent(event: ExtensionEvents['forwardCDPEvent']['params']): void {
+    // No client is connected during grace: events wait for the one that reconnects.
+    if (this._deps.getState() === 'grace') {
+      this._deps.bufferEvent(JSON.stringify({ sessionId: event.cdpSessionId || undefined, method: event.method, params: event.params }));
+      return;
+    }
+    // An event of a tab the session no longer owns must not reach its current page.
+    const session = this._deps.getClient(event.sessionId);
+    if (!session || session.tabId !== event.tabId)
+      return;
+
+    // Track URL changes so /sessions reflects the current page
+    if (event.method === 'Target.targetInfoChanged' && event.params?.targetInfo)
+      this._deps.binding.noteTargetInfo(session, event.params.targetInfo);
+    else if (event.method === 'Page.frameNavigated' && event.params?.frame && !event.params.frame.parentId)
+      this._deps.binding.noteTargetInfo(session, { url: event.params.frame.url });
+
+    if (event.method === 'Page.downloadWillBegin' || event.method === 'Page.downloadProgress')
+      serverLog('download', `CDP event ${event.method}: sessionId=${session.sessionId}, ${JSON.stringify(event.params)}`);
+
+    this._deps.sendToClient(session, {
+      sessionId: event.cdpSessionId || session.cdpSessionId || undefined,
+      method: event.method,
+      params: event.params
+    });
+  }
+
+  private async _forwardToExtension(method: string, params: any, cdpSessionId: string | undefined, sessionId: string): Promise<any> {
+    const extension = this._currentExtension();
+    const session = this._deps.getClient(sessionId);
+    if (session?.tabId == null)
+      throw new Error(`No tab attached to session ${sessionId}`);
+    // Strip the top-level cdpSessionId — it only exists between relay and Playwright client.
+    // Child sessions (iframes, workers) have their own cdpSessionId that passes through.
+    if (session.cdpSessionId === cdpSessionId)
+      cdpSessionId = undefined;
+    return await extension.send('forwardCDPCommand', { sessionId, tabId: session.tabId, cdpSessionId, method, params }, { timeout: FORWARDED_COMMAND_CEILING_MS });
+  }
+
+  private _currentExtension(): ExtensionConnection {
+    const extension = this._deps.getExtensionConnection();
+    if (!extension)
+      throw new Error('Extension not connected');
+    const mismatch = this._deps.getExtensionMismatch();
+    if (mismatch)
+      throw new Error(mismatch);
+    return extension;
   }
 }

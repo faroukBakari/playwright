@@ -31,7 +31,6 @@ export interface ClientSession {
   cdpSessionId: string | null;    // Derived 'session-{sessionId}', null before Target.setAutoAttach
   targetInfo: any | null;         // CDP TargetInfo from extension
   tabId: number | null;           // Chrome tab ID, set on attach
-  downloadBehavior: { behavior: string; downloadPath?: string } | null; // Stored from Browser.setDownloadBehavior for deferred Page-level send
 }
 
 export interface DormantSession {
@@ -48,7 +47,6 @@ export interface CDPRelayOptions {
   graceBufferMaxBytes?: number;    // default: 2MB
   maxConcurrentClients?: number;   // default: 4
   sessionGraceTTL?: number;        // optional for test ergonomics; production passes config value
-  downloadsPath?: string;          // Browser-side download directory (e.g., Windows path when Chrome runs on Windows)
 }
 
 export type CDPCommand = {

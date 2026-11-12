@@ -278,8 +278,14 @@ export class Context {
     }
     const tab = new Tab(this, page, tab => this._onPageClosed(tab));
     this._tabs.push(tab);
-    if (!this._currentTab)
+    // Through the extension a session drives one tab: the page announced last is the bound one.
+    if (this.relayHttpUrl) {
+      if (this._tabs.length > 1)
+        serverLog('critical', `second live page in a one-page context: pages=${this._tabs.length}, sessionId=${this.id}`);
       this._currentTab = tab;
+    } else if (!this._currentTab) {
+      this._currentTab = tab;
+    }
     this._startPageVideo(page).catch(() => {});
   }
 
@@ -447,6 +453,11 @@ function originOrHostGlob(originOrHost: string) {
   }
   // Support for legacy host-only mode.
   return `*://${originOrHost}/**`;
+}
+
+/** The browser target behind a page, read through the in-process bridge; none outside Chromium. */
+export function targetIdOf(page: playwright.Page): string | undefined {
+  return (page as any)._connection.toImpl(page)?.delegate?._targetId;
 }
 
 export async function workspaceFile(options: ContextOptions, fileName: string, perCallWorkspaceDir?: string): Promise<string> {

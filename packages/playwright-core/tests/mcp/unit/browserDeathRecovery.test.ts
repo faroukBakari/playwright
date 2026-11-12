@@ -436,7 +436,6 @@ describe('CDPRelay respawn (no orphaned servers)', () => {
       cdpSessionId: 'session-test-client',
       targetInfo: { type: 'page' },
       tabId: null,
-      downloadBehavior: null,
     };
     r._clients.set('test-client', fakeSession);
     r._playwrightReconnectCount = 2;
