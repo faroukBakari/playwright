@@ -260,13 +260,40 @@ async function handleSSE(serverBackendFactory: ServerBackendFactory, req: http.I
 // explicit close).
 const DEFAULT_SESSION_TRANSPORT_IDLE_TTL = 120_000;
 const sessionIdleTimers = new Map<string, ReturnType<typeof setTimeout>>();
+// Idle means no request in flight: the count is tied to open responses of this process and cannot live elsewhere.
+const sessionRequestsInFlight = new Map<string, number>();
 
-function resetSessionIdleTimer(sessionId: string, sessions: Map<string, StreamableHTTPServerTransport>, ttlMs: number) {
+function cancelSessionIdleTimer(sessionId: string): boolean {
+  const timer = sessionIdleTimers.get(sessionId);
+  if (!timer)
+    return false;
+  clearTimeout(timer);
+  sessionIdleTimers.delete(sessionId);
+  return true;
+}
+
+/** The idle time of a session starts when its last open response closes, not when a request arrives. */
+function trackSessionRequest(sessionId: string, res: http.ServerResponse, sessions: Map<string, StreamableHTTPServerTransport>, ttlMs: number) {
   if (ttlMs <= 0)
     return;
-  const existing = sessionIdleTimers.get(sessionId);
-  if (existing)
-    clearTimeout(existing);
+  cancelSessionIdleTimer(sessionId);
+  sessionRequestsInFlight.set(sessionId, (sessionRequestsInFlight.get(sessionId) ?? 0) + 1);
+  res.once('close', () => {
+    const remaining = (sessionRequestsInFlight.get(sessionId) ?? 1) - 1;
+    if (remaining > 0) {
+      sessionRequestsInFlight.set(sessionId, remaining);
+      return;
+    }
+    sessionRequestsInFlight.delete(sessionId);
+    if (sessions.has(sessionId))
+      armSessionIdleTimer(sessionId, sessions, ttlMs);
+  });
+}
+
+function armSessionIdleTimer(sessionId: string, sessions: Map<string, StreamableHTTPServerTransport>, ttlMs: number) {
+  if (ttlMs <= 0 || sessionRequestsInFlight.has(sessionId))
+    return;
+  cancelSessionIdleTimer(sessionId);
   sessionIdleTimers.set(sessionId, setTimeout(async () => {
     sessionIdleTimers.delete(sessionId);
     const transport = sessions.get(sessionId);
@@ -290,7 +317,7 @@ async function handleStreamable(
   if (sessionId) {
     const transport = sessions.get(sessionId);
     if (transport) {
-      resetSessionIdleTimer(sessionId, sessions, sessionTransportIdleTTL);
+      trackSessionRequest(sessionId, res, sessions, sessionTransportIdleTTL);
       return await transport.handleRequest(req, res);
     }
 
@@ -341,12 +368,9 @@ async function handleStreamable(
     transport.onclose = () => {
       if (!transport.sessionId)
         return;
-      const timer = sessionIdleTimers.get(transport.sessionId);
-      if (timer) {
-        clearTimeout(timer);
-        sessionIdleTimers.delete(transport.sessionId);
+      if (cancelSessionIdleTimer(transport.sessionId))
         serverLog('lifecycle', `session idle timer cancelled (transport closed): ${transport.sessionId}`);
-      }
+      sessionRequestsInFlight.delete(transport.sessionId);
       sessions.delete(transport.sessionId);
       // Don't delete session state — it must survive server restarts for
       // stale session recovery. The file is overwritten when a new session
@@ -356,9 +380,9 @@ async function handleStreamable(
     };
 
     await transport.handleRequest(req, res);
-    // Start the idle timer after the first request is processed
+    // The first request carries no session id on arrival, so it is not counted: idle time starts once it is processed.
     if (transport.sessionId)
-      resetSessionIdleTimer(transport.sessionId, sessions, sessionTransportIdleTTL);
+      armSessionIdleTimer(transport.sessionId, sessions, sessionTransportIdleTTL);
     return;
   }
 

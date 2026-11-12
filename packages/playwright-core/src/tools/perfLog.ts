@@ -18,6 +18,7 @@ import fs from 'fs';
 import path from 'path';
 
 import { debug } from '../utilsBundle';
+import { currentRequestScope } from './requestScope';
 
 const perfDebug = debug('pw:mcp:perf');
 
@@ -40,8 +41,6 @@ export class PerfLog {
   private _stream: fs.WriteStream | null = null;
   private _sessionId?: string;
   private _clientId?: string;
-  private _toolName?: string;
-  private _callId?: string;
   private _retentionDays: number;
   private _cleaned = false;
 
@@ -64,8 +63,6 @@ export class PerfLog {
   }
 
   setClientId(clientId: string) { this._clientId = clientId; }
-  setTool(toolName: string) { this._toolName = toolName; }
-  setCallId(callId: string | undefined) { this._callId = callId; }
 
   async timeAsync<T>(
     entry: Omit<PerfEntry, 'ts' | 'actual_ms' | 'sid' | 'tool'>,
@@ -73,6 +70,7 @@ export class PerfLog {
     extras?: (result: T | undefined, error?: unknown) => Record<string, any>,
   ): Promise<T> {
     const start = performance.now();
+    const scope = currentRequestScope();
     let result: T | undefined;
     let extraFields: Record<string, any> = {};
     try {
@@ -92,9 +90,9 @@ export class PerfLog {
         actual_ms,
         ts: new Date().toISOString(),
         sid: this._sessionId,
-        clientId: this._clientId,
-        tool: this._toolName,
-        callId: this._callId,
+        clientId: scope?.sessionId ?? this._clientId,
+        tool: scope?.tool,
+        callId: scope?.callId,
       });
     }
   }

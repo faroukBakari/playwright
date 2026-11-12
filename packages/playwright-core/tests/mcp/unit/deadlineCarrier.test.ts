@@ -3,6 +3,11 @@ import { describe, it, expect } from 'vitest';
 // Import from compiled playwright-core (file: dependency)
 import { Context } from 'playwright-core/src/tools/context';
 import { Tab } from 'playwright-core/src/tools/tab';
+import { RequestDeadlineError, runInRequestScope } from 'playwright-core/src/tools/requestScope';
+
+function withBudget<T>(budgetMs: number, fn: () => T): T {
+  return runInRequestScope({ callId: 'call-fixture', tool: 'fixture_tool', deadline: Date.now() + budgetMs }, fn);
+}
 
 // ---------------------------------------------------------------------------
 // Context deadline state
@@ -14,27 +19,22 @@ describe('Context deadline state', () => {
     expect(ctx.remainingBudget()).toBe(Infinity);
   });
 
-  it('setDeadline sets a finite remaining budget', () => {
+  it('a request scope gives a finite remaining budget', () => {
     const ctx = createStubContext();
-    ctx.setDeadline(5000);
-    const remaining = ctx.remainingBudget();
+    const remaining = withBudget(5000, () => ctx.remainingBudget());
     expect(remaining).toBeGreaterThan(0);
     expect(remaining).toBeLessThanOrEqual(5000);
     expect(remaining).not.toBe(Infinity);
   });
 
-  it('remainingBudget returns 0 when deadline is in the past', () => {
+  it('remainingBudget throws once the deadline has passed', () => {
     const ctx = createStubContext();
-    ctx.setDeadline(0); // deadline = Date.now() + 0 = now
-    // By the time remainingBudget() runs, Date.now() >= deadline
-    expect(ctx.remainingBudget()).toBe(0);
+    expect(() => withBudget(0, () => ctx.remainingBudget())).toThrow(RequestDeadlineError);
   });
 
-  it('clearDeadline restores Infinity', () => {
+  it('the budget is unbounded again once the scope has ended', () => {
     const ctx = createStubContext();
-    ctx.setDeadline(5000);
-    expect(ctx.remainingBudget()).not.toBe(Infinity);
-    ctx.clearDeadline();
+    expect(withBudget(5000, () => ctx.remainingBudget())).not.toBe(Infinity);
     expect(ctx.remainingBudget()).toBe(Infinity);
   });
 });
@@ -57,9 +57,8 @@ describe('Tab timeout getters with deadline', () => {
     const ctx = createStubContext({});
     const tab = createStubTab(ctx);
 
-    // Set a tight deadline — budget will be much smaller than ceiling
-    ctx.setDeadline(100);
-    const timeout = tab.actionTimeoutOptions.timeout!;
+    // Tight deadline — budget will be much smaller than ceiling
+    const timeout = withBudget(100, () => tab.actionTimeoutOptions.timeout!);
     expect(timeout).toBeLessThanOrEqual(100);
     expect(timeout).toBeLessThan(5_000);
   });
@@ -68,37 +67,32 @@ describe('Tab timeout getters with deadline', () => {
     const ctx = createStubContext({});
     const tab = createStubTab(ctx);
 
-    // Set a generous deadline — ceiling should win
-    ctx.setDeadline(30000);
-    expect(tab.actionTimeoutOptions.timeout).toBe(5_000);
+    // Generous deadline — ceiling should win
+    expect(withBudget(30000, () => tab.actionTimeoutOptions.timeout)).toBe(5_000);
   });
 
   it('returns remaining budget when budget is tighter than ceiling', () => {
     const ctx = createStubContext({});
     const tab = createStubTab(ctx);
 
-    ctx.setDeadline(3000);
-    const timeout = tab.actionTimeoutOptions.timeout!;
+    const timeout = withBudget(3000, () => tab.actionTimeoutOptions.timeout!);
     expect(timeout).toBeGreaterThan(0);
     expect(timeout).toBeLessThanOrEqual(3000);
   });
 
-  it('returns 0 when budget is exhausted', () => {
+  it('throws when the budget is exhausted', () => {
     const ctx = createStubContext({});
     const tab = createStubTab(ctx);
 
-    ctx.setDeadline(0); // immediate exhaustion
-    expect(tab.actionTimeoutOptions.timeout).toBe(0);
+    expect(() => withBudget(0, () => tab.actionTimeoutOptions.timeout)).toThrow(RequestDeadlineError);
   });
 
-  it('restores ceiling after clearDeadline', () => {
+  it('restores ceiling once the scope has ended', () => {
     const ctx = createStubContext({});
     const tab = createStubTab(ctx);
 
-    ctx.setDeadline(100);
-    expect(tab.actionTimeoutOptions.timeout!).toBeLessThanOrEqual(100);
+    expect(withBudget(100, () => tab.actionTimeoutOptions.timeout!)).toBeLessThanOrEqual(100);
 
-    ctx.clearDeadline();
     expect(tab.actionTimeoutOptions.timeout).toBe(5_000);
     expect(tab.navigationTimeoutOptions.timeout).toBe(15_000);
     expect(tab.expectTimeoutOptions.timeout).toBe(5_000);
@@ -111,16 +105,13 @@ describe('Tab timeout getters with deadline', () => {
     // No deadline — ceiling
     expect(tab.actionTimeoutOptions.timeout).toBe(5_000);
 
-    // Set tight deadline — budget wins
-    ctx.setDeadline(100);
-    expect(tab.actionTimeoutOptions.timeout!).toBeLessThanOrEqual(100);
+    // Tight deadline — budget wins
+    expect(withBudget(100, () => tab.actionTimeoutOptions.timeout!)).toBeLessThanOrEqual(100);
 
-    // Set generous deadline — ceiling wins
-    ctx.setDeadline(30000);
-    expect(tab.actionTimeoutOptions.timeout).toBe(5_000);
+    // Generous deadline — ceiling wins
+    expect(withBudget(30000, () => tab.actionTimeoutOptions.timeout)).toBe(5_000);
 
-    // Clear — back to ceiling
-    ctx.clearDeadline();
+    // Scope ended — back to ceiling
     expect(tab.actionTimeoutOptions.timeout).toBe(5_000);
   });
 });
@@ -169,10 +160,10 @@ describe('Tab.screenshotTimeoutOptions — bypasses action ceiling', () => {
     const ctx = createStubContext({});
     const tab = createStubTab(ctx);
 
-    ctx.setDeadline(15000);
-
-    const screenshotTimeout = tab.screenshotTimeoutOptions.timeout!;
-    const actionTimeout = tab.actionTimeoutOptions.timeout!;
+    const { screenshotTimeout, actionTimeout } = withBudget(15000, () => ({
+      screenshotTimeout: tab.screenshotTimeoutOptions.timeout!,
+      actionTimeout: tab.actionTimeoutOptions.timeout!,
+    }));
 
     // Screenshot gets the full remaining budget — not the 5s action ceiling
     expect(screenshotTimeout).toBeGreaterThan(0);
@@ -190,35 +181,32 @@ describe('Tab.screenshotTimeoutOptions — bypasses action ceiling', () => {
     const ctx = createStubContext({});
     const tab = createStubTab(ctx);
 
-    ctx.setDeadline(1000);
-    const timeout = tab.screenshotTimeoutOptions.timeout!;
+    const timeout = withBudget(1000, () => tab.screenshotTimeoutOptions.timeout!);
     expect(timeout).toBeGreaterThan(0);
     expect(timeout).toBeLessThanOrEqual(1000);
   });
 
-  it('getter evaluates dynamically — no deadline then deadline then cleared', () => {
+  it('getter evaluates dynamically — no scope, then a scope, then none', () => {
     const ctx = createStubContext({});
     const tab = createStubTab(ctx);
 
     // No deadline → undefined
     expect(tab.screenshotTimeoutOptions.timeout).toBeUndefined();
 
-    // Set deadline → returns remaining budget
-    ctx.setDeadline(15000);
-    expect(tab.screenshotTimeoutOptions.timeout).toBeGreaterThan(0);
-    expect(tab.screenshotTimeoutOptions.timeout).toBeLessThanOrEqual(15000);
+    // Inside a scope → returns remaining budget
+    const scoped = withBudget(15000, () => tab.screenshotTimeoutOptions.timeout);
+    expect(scoped).toBeGreaterThan(0);
+    expect(scoped).toBeLessThanOrEqual(15000);
 
-    // Clear deadline → back to undefined
-    ctx.clearDeadline();
+    // Scope ended → back to undefined
     expect(tab.screenshotTimeoutOptions.timeout).toBeUndefined();
   });
 
-  it('returns 0 when budget is exhausted', () => {
+  it('throws when the budget is exhausted', () => {
     const ctx = createStubContext({});
     const tab = createStubTab(ctx);
 
-    ctx.setDeadline(0); // immediate exhaustion
-    expect(tab.screenshotTimeoutOptions.timeout).toBe(0);
+    expect(() => withBudget(0, () => tab.screenshotTimeoutOptions.timeout)).toThrow(RequestDeadlineError);
   });
 });
 

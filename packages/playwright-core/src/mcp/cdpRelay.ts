@@ -684,10 +684,6 @@ export class CDPRelayServer {
     // Update the ClientSession if it already exists
     const session = this._clients.get(sessionId);
     if (session) {
-      // Self-detach: if this session is switching from one tab to another,
-      // send Target.detachedFromTarget for the OLD page to the attaching
-      // client's own WS. Without this, Playwright's old CRPage becomes a
-      // zombie — dead CDP connection, still _currentTab, hangs serialize().
       if (session.tabId !== null && session.tabId !== tabId && session.cdpSessionId) {
         serverLog('session', `self-detach: ${sessionId} leaving tab ${session.tabId} for tab ${tabId}`);
         this._commandRouter.sendTabDetached(session, `Session ${sessionId} switching from tab ${session.tabId} to tab ${tabId}`);
@@ -701,6 +697,10 @@ export class CDPRelayServer {
       this._commandRouter.sendTabAttached(session);
     }
     return result;
+  }
+
+  async recycleTab(sessionId: string, options?: { timeout?: number }): Promise<any> {
+    return await this._commandRouter.recycleTab(sessionId, options);
   }
 
   async sendCustomCommand(method: string, params: any, options?: { timeout?: number }): Promise<any> {

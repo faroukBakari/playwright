@@ -1,10 +1,20 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-// Import from compiled playwright-core (file: dependency)
+import { z } from 'playwright-core/src/mcpBundle';
+import { BrowserServerBackend } from 'playwright-core/src/tools/browserServerBackend';
 import { PerfLog, nullPerfLog, createPerfLog } from 'playwright-core/src/tools/perfLog';
+import { runInRequestScope } from 'playwright-core/src/tools/requestScope';
+import { defineTool } from 'playwright-core/src/tools/tool';
+import type { RequestScope } from 'playwright-core/src/tools/requestScope';
+
+vi.mock('playwright-core/src/mcp/log', () => ({ serverLog: vi.fn(), logUnhandledError: vi.fn() }));
+
+function inCall<T>(labels: Partial<RequestScope>, fn: () => T): T {
+  return runInRequestScope({ callId: 'call-fixture', tool: 'fixture_tool', deadline: Date.now() + 5000, ...labels }, fn);
+}
 
 let tmpDir: string;
 
@@ -87,14 +97,13 @@ describe('PerfLog', () => {
     expect(typeof entry.actual_ms).toBe('number');
   });
 
-  it('setSession and setTool thread through to entries', async () => {
+  it('session id and the scope tool thread through to entries', async () => {
     const log = new PerfLog(tmpDir);
     log.setSession('sess-123');
-    log.setTool('browser_click');
-    await log.timeAsync(
+    await inCall({ tool: 'browser_click' }, () => log.timeAsync(
         { phase: 'test', step: 'tool', side: 'server', target_ms: 0 },
         async () => {},
-    );
+    ));
     await closeAndFlush(log);
 
     const files = fs.readdirSync(tmpDir);
@@ -186,13 +195,12 @@ describe('nullPerfLog', () => {
 });
 
 describe('callId tracking', () => {
-  it('stamps callId on entries when set', async () => {
+  it('stamps callId on entries written inside a call', async () => {
     const log = new PerfLog(tmpDir);
-    log.setCallId('call-abc-123');
-    await log.timeAsync(
+    await inCall({ callId: 'call-abc-123' }, () => log.timeAsync(
         { phase: 'tool', step: 'e2e', side: 'server', target_ms: 0 },
         async () => {},
-    );
+    ));
     await closeAndFlush(log);
 
     const files = fs.readdirSync(tmpDir);
@@ -200,7 +208,7 @@ describe('callId tracking', () => {
     expect(entry.callId).toBe('call-abc-123');
   });
 
-  it('callId is undefined when not set', async () => {
+  it('callId is undefined outside a call', async () => {
     const log = new PerfLog(tmpDir);
     await log.timeAsync(
         { phase: 'test', step: 'no-call', side: 'server', target_ms: 0 },
@@ -213,14 +221,12 @@ describe('callId tracking', () => {
     expect(entry.callId).toBeUndefined();
   });
 
-  it('setCallId(undefined) clears the field', async () => {
+  it('callId is gone once the call has ended', async () => {
     const log = new PerfLog(tmpDir);
-    log.setCallId('call-xyz');
-    await log.timeAsync(
+    await inCall({ callId: 'call-xyz' }, () => log.timeAsync(
         { phase: 'test', step: 'with-id', side: 'server', target_ms: 0 },
         async () => {},
-    );
-    log.setCallId(undefined);
+    ));
     await log.timeAsync(
         { phase: 'test', step: 'without-id', side: 'server', target_ms: 0 },
         async () => {},
@@ -236,15 +242,16 @@ describe('callId tracking', () => {
     expect(second.callId).toBeUndefined();
   });
 
-  it('callId persists across multiple timeAsync calls within same set', async () => {
+  it('callId persists across multiple timeAsync calls within the same call', async () => {
     const log = new PerfLog(tmpDir);
-    log.setCallId('call-persist');
-    for (let i = 0; i < 3; i++) {
-      await log.timeAsync(
-          { phase: 'test', step: `phase-${i}`, side: 'server', target_ms: 0 },
-          async () => {},
-      );
-    }
+    await inCall({ callId: 'call-persist' }, async () => {
+      for (let i = 0; i < 3; i++) {
+        await log.timeAsync(
+            { phase: 'test', step: `phase-${i}`, side: 'server', target_ms: 0 },
+            async () => {},
+        );
+      }
+    });
     await closeAndFlush(log);
 
     const files = fs.readdirSync(tmpDir);
@@ -253,6 +260,65 @@ describe('callId tracking', () => {
     for (const line of lines)
       expect(JSON.parse(line).callId).toBe('call-persist');
 
+  });
+});
+
+describe('per-call labels', () => {
+  it('regression: two interleaved calls each write their own tool, call id and client id', async () => {
+    const log = new PerfLog(tmpDir);
+    log.setClientId('default-client');
+    let releaseFirst!: () => void;
+    const gate = new Promise<void>(resolve => releaseFirst = resolve);
+    const deadline = Date.now() + 5000;
+
+    const first = runInRequestScope({ callId: 'call-1', tool: 'tool_one', sessionId: 'session-1', deadline }, () => log.timeAsync(
+        { phase: 'tool', step: 'first', side: 'server', target_ms: 0 },
+        () => gate,
+    ));
+    await runInRequestScope({ callId: 'call-2', tool: 'tool_two', sessionId: 'session-2', deadline }, () => log.timeAsync(
+        { phase: 'tool', step: 'second', side: 'server', target_ms: 0 },
+        async () => {},
+    ));
+    releaseFirst();
+    await first;
+    await closeAndFlush(log);
+
+    const files = fs.readdirSync(tmpDir);
+    const entries = fs.readFileSync(path.join(tmpDir, files[0]), 'utf8').trim().split('\n').map(line => JSON.parse(line));
+    expect(entries.find(entry => entry.step === 'first')).toMatchObject({ tool: 'tool_one', callId: 'call-1', clientId: 'session-1' });
+    expect(entries.find(entry => entry.step === 'second')).toMatchObject({ tool: 'tool_two', callId: 'call-2', clientId: 'session-2' });
+  });
+});
+
+describe('tool call telemetry through the backend', () => {
+  it('a tool call writes its end-to-end entry with its own labels and outcome', async () => {
+    const echo = defineTool({
+      capability: 'core',
+      noTabRequired: true,
+      schema: {
+        name: 'fixture_echo', title: 'Echo fixture', description: 'Returns at once',
+        inputSchema: z.object({}), type: 'action',
+      },
+      handle: async (_context, _params, response) => {
+        response.addTextResult('done');
+        response.setIncludeSnapshot('none');
+      },
+    });
+    const factory = async () => ({ pages: () => [], on: () => {}, off: () => {}, browser: () => null }) as any;
+    const backend = new BrowserServerBackend({ codegen: 'none' } as any, null, [echo], tmpDir, factory);
+    await backend.initialize({ cwd: tmpDir } as any);
+
+    const result = await backend.callTool('fixture_echo', {}, async () => {}, 'session-telemetry');
+    await closeAndFlush((backend as any)._perfLog);
+    await backend.dispose();
+
+    expect(result.isError).not.toBe(true);
+    const perfDir = path.join(tmpDir, '.local', 'perf');
+    const lines = fs.readFileSync(path.join(perfDir, fs.readdirSync(perfDir)[0]), 'utf8').trim().split('\n');
+    const endToEnd = lines.map(line => JSON.parse(line)).find(entry => entry.step === 'e2e');
+    expect(endToEnd).toMatchObject({ phase: 'tool', tool: 'fixture_echo', clientId: 'session-telemetry', outcome: 'success' });
+    expect(endToEnd.callId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(endToEnd.response_chars).toBeGreaterThan(0);
   });
 });
 

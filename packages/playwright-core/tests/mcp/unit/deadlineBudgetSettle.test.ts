@@ -1,13 +1,18 @@
 import { describe, it, expect } from 'vitest';
 
 import { Context } from 'playwright-core/src/tools/context';
+import { RequestDeadlineError, runInRequestScope } from 'playwright-core/src/tools/requestScope';
+
+function withBudget<T>(budgetMs: number, fn: () => T): T {
+  return runInRequestScope({ callId: 'call-fixture', tool: 'fixture_tool', deadline: Date.now() + budgetMs }, fn);
+}
 
 // ---------------------------------------------------------------------------
 // Budget-aware settle capping (Phase 2)
 //
 // waitForCompletion's cappedTimeout(configured) returns
 // min(configured, remainingBudget()). We test the capping semantics
-// through the real Context deadline API.
+// through the real Context budget reader inside a request scope.
 // ---------------------------------------------------------------------------
 
 describe('cappedTimeout semantics via Context.remainingBudget()', () => {
@@ -28,42 +33,35 @@ describe('cappedTimeout semantics via Context.remainingBudget()', () => {
 
   it('returns min(configured, remaining) under deadline', () => {
     const ctx = createStubContext();
-    ctx.setDeadline(200); // ~200ms remaining
-    const remaining = ctx.remainingBudget();
-    void remaining;
+    withBudget(200, () => {
+      // Configured > remaining → budget wins
+      expect(cappedTimeout(ctx, 5000)).toBeLessThanOrEqual(200);
+      expect(cappedTimeout(ctx, 5000)).toBeGreaterThan(0);
 
-    // Configured > remaining → budget wins
-    expect(cappedTimeout(ctx, 5000)).toBeLessThanOrEqual(200);
-    expect(cappedTimeout(ctx, 5000)).toBeGreaterThan(0);
-
-    // Configured < remaining → configured wins
-    expect(cappedTimeout(ctx, 10)).toBe(10);
+      // Configured < remaining → configured wins
+      expect(cappedTimeout(ctx, 10)).toBe(10);
+    });
   });
 
-  it('returns 0 when budget is exhausted', () => {
+  it('throws when the budget is exhausted', () => {
     const ctx = createStubContext();
-    ctx.setDeadline(0); // deadline = now → immediately exhausted
-    expect(cappedTimeout(ctx, 5000)).toBe(0);
-    expect(cappedTimeout(ctx, 100)).toBe(0);
-    expect(cappedTimeout(ctx, 0)).toBe(0);
+    expect(() => withBudget(0, () => cappedTimeout(ctx, 5000))).toThrow(RequestDeadlineError);
   });
 
   it('each call evaluates dynamically (shrinking budget)', () => {
     const ctx = createStubContext();
-    ctx.setDeadline(500);
-
-    const first = cappedTimeout(ctx, 5000);
-    // Time passes between calls — second should be <= first
-    const second = cappedTimeout(ctx, 5000);
-    expect(second).toBeLessThanOrEqual(first);
+    withBudget(500, () => {
+      const first = cappedTimeout(ctx, 5000);
+      // Time passes between calls — second should be <= first
+      const second = cappedTimeout(ctx, 5000);
+      expect(second).toBeLessThanOrEqual(first);
+    });
   });
 
-  it('restores configured values after clearDeadline', () => {
+  it('restores configured values once the scope has ended', () => {
     const ctx = createStubContext();
-    ctx.setDeadline(50);
-    expect(cappedTimeout(ctx, 5000)).toBeLessThanOrEqual(50);
+    withBudget(50, () => expect(cappedTimeout(ctx, 5000)).toBeLessThanOrEqual(50));
 
-    ctx.clearDeadline();
     expect(cappedTimeout(ctx, 5000)).toBe(5000);
   });
 });

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'playwright-core/src/mcpBundle';
 import { BrowserServerBackend } from 'playwright-core/src/tools/browserServerBackend';
 import { Context } from 'playwright-core/src/tools/context';
+import { Response as ResponseClass } from 'playwright-core/src/tools/response';
 import { defineTool } from 'playwright-core/src/tools/tool';
 import type { Response } from 'playwright-core/src/tools/response';
 
@@ -35,10 +36,12 @@ function createFixture(options: { stallHandler?: boolean; stallCapture?: boolean
   const headerGate = deferred(header);
   const capture = vi.fn(() => options.stallCapture ? captureGate.promise : Promise.resolve(snapshot));
   const headers = vi.fn(() => options.stallHeaders ? headerGate.promise : Promise.resolve(header));
+  const markStale = vi.fn();
   const tab = {
     page: { url: () => 'about:blank' },
     captureSnapshot: capture,
     headerSnapshot: headers,
+    markSnapshotStale: markStale,
     dispose: vi.fn().mockResolvedValue(undefined),
   };
   Object.assign(context, { _tabs: [tab], _currentTab: tab });
@@ -66,6 +69,8 @@ function createFixture(options: { stallHandler?: boolean; stallCapture?: boolean
     headers,
     handler,
     handlerGate,
+    captureGate,
+    markStale,
     get outcome() { return outcome; },
     run() {
       operation = backend.callTool(tool.schema.name, {}, async () => {}).then(
@@ -108,7 +113,98 @@ function expectTimeout(result: ReturnType<typeof createFixture>['outcome']) {
   ]);
 }
 
+function expectSuccessWithoutSnapshot(result: ReturnType<typeof createFixture>['outcome'], reason: string) {
+  expect(result, 'The response must be returned by the call deadline').toBeDefined();
+  expect(result!.isError).not.toBe(true);
+  const text = result!.content.map(part => part.type === 'text' ? part.text : '').join('\n');
+  expect(text).toContain('fixture-result');
+  expect(text).toContain(`snapshot unavailable: ${reason}`);
+  expect(text).not.toContain('### Snapshot');
+  expect(text).not.toContain('### Page');
+}
+
 describe('complete response deadline unit boundary', () => {
+  it('regression: a stalled snapshot capture returns the result with a note by the deadline', async () => {
+    fixture = createFixture({ stallCapture: true });
+    void fixture.run();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fixture.capture).toHaveBeenCalledOnce();
+    expect(fixture.headers).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(budgetMs);
+
+    expectSuccessWithoutSnapshot(fixture.outcome, 'not captured before the call deadline');
+    expect(fixture.markStale).toHaveBeenCalledTimes(1);
+    fixture.captureGate.release();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fixture.markStale, 'a capture that finishes late must not leave a diff baseline the caller never saw').toHaveBeenCalledTimes(2);
+  });
+
+  it('regression: stalled tab headers return the result with a note by the deadline', async () => {
+    fixture = createFixture({ stallHeaders: true });
+    void fixture.run();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fixture.capture).toHaveBeenCalledOnce();
+    expect(fixture.headers).toHaveBeenCalledOnce();
+
+    await vi.advanceTimersByTimeAsync(budgetMs);
+
+    expectSuccessWithoutSnapshot(fixture.outcome, 'not captured before the call deadline');
+  });
+
+  it('regression: handler and snapshot share one deadline', async () => {
+    fixture = createFixture({ stallHandler: true, stallCapture: true });
+    void fixture.run();
+    await vi.advanceTimersByTimeAsync(600);
+    expect(fixture.capture).not.toHaveBeenCalled();
+    fixture.handlerGate.release();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fixture.capture).toHaveBeenCalledOnce();
+
+    await vi.advanceTimersByTimeAsync(budgetMs - 600);
+
+    expectSuccessWithoutSnapshot(fixture.outcome, 'not captured before the call deadline');
+  });
+
+  it('regression: a rejected snapshot returns the result with the rejection as a note', async () => {
+    fixture = createFixture();
+    fixture.capture.mockRejectedValueOnce(new Error('fixture snapshot rejected'));
+
+    await fixture.run();
+
+    expectSuccessWithoutSnapshot(fixture.outcome, 'fixture snapshot rejected');
+  });
+
+  it('regression: a stalled handler returns the stop text', async () => {
+    fixture = createFixture({ stallHandler: true });
+    void fixture.run();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fixture.handler).toHaveBeenCalledOnce();
+
+    await vi.advanceTimersByTimeAsync(budgetMs + safetyAllowanceMs);
+
+    expectTimeout(fixture.outcome);
+    expect(fixture.outcome!.content).toEqual([
+      { type: 'text', text: expect.stringContaining(`timed out after ${budgetMs}ms. The call was stopped and the page is being re-attached; page JavaScript that already started may still take effect; element refs from earlier snapshots are invalid.`) },
+    ]);
+    expect(fixture.capture).not.toHaveBeenCalled();
+  });
+
+  it('a response still unbuilt after the handler returned reports the action as completed', async () => {
+    fixture = createFixture();
+    vi.spyOn(ResponseClass.prototype, 'serialize').mockReturnValue(new Promise(() => {}));
+    void fixture.run();
+
+    await vi.advanceTimersByTimeAsync(budgetMs + safetyAllowanceMs);
+
+    expect(fixture.handler).toHaveBeenCalledOnce();
+    expect(fixture.outcome).toMatchObject({ isError: true });
+    expect(fixture.outcome!.content).toEqual([
+      { type: 'text', text: expect.stringContaining('completed its action, but its response could not be built') },
+    ]);
+    expect(JSON.stringify(fixture.outcome)).not.toContain('The call was stopped');
+  });
+
   it('control: a completed response includes its snapshot and leaves no watchdog', async () => {
     fixture = createFixture();
 
@@ -121,27 +217,15 @@ describe('complete response deadline unit boundary', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it('control: the existing watchdog bounds a stalled handler', async () => {
-    fixture = createFixture({ stallHandler: true });
-    void fixture.run();
-    await vi.advanceTimersByTimeAsync(0);
-    expect(fixture.handler).toHaveBeenCalledOnce();
-    expect(fixture.capture).not.toHaveBeenCalled();
-
-    await vi.advanceTimersByTimeAsync(budgetMs + safetyAllowanceMs);
-
-    expectTimeout(fixture.outcome);
-  });
-
-  it('control: a snapshot rejection preserves its application error', async () => {
+  it('control: a handler error stays an error', async () => {
     fixture = createFixture();
-    fixture.capture.mockRejectedValueOnce(new Error('fixture snapshot rejected'));
+    fixture.handler.mockRejectedValueOnce(new Error('fixture handler rejected'));
 
     await fixture.run();
 
     expect(fixture.outcome).toMatchObject({ isError: true });
     expect(fixture.outcome?.content).toEqual([
-      { type: 'text', text: expect.stringContaining('fixture snapshot rejected') },
+      { type: 'text', text: expect.stringContaining('fixture handler rejected') },
     ]);
     expect(JSON.stringify(fixture.outcome)).not.toContain('timed out');
   });

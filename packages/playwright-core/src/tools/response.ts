@@ -20,8 +20,10 @@ import path from 'path';
 import { debug } from '../utilsBundle';
 import { renderModalStates, shouldIncludeMessage, consoleLevelForMessageType } from './artifactCollector';
 import { scaleImageToFitMessage } from './screenshot';
+import { RequestDeadlineError, remainingRequestBudget } from './requestScope';
 
-import type { TabHeader } from './tab';
+import type { Tab, TabHeader } from './tab';
+import type { TabSnapshot } from './snapshotOrchestrator';
 import type { CallToolResult, ImageContent, TextContent } from '@modelcontextprotocol/sdk/types.js';
 import type { Context, FilenameTemplate } from './context';
 import type { SnapshotMode } from './snapshotOptions';
@@ -252,9 +254,67 @@ export class Response {
     const hasTab = !!this._context.currentTab();
     const wantsSnapshot = this._includeSnapshot !== 'none';
 
+    const observation = wantsSnapshot ? await this._boundedObservation(hasTab ? this._context.currentTabOrDie() : undefined) : undefined;
+    resultContent.push(...observation?.notes ?? []);
+    const tabSnapshot = observation?.tabSnapshot;
+    requestDebug('tool=%s snapshot=%s hasTab=%s', this.toolName, this._includeSnapshot, hasTab);
+    const tabHeaders = observation?.tabHeaders;
+    if (tabHeaders?.length) {
+      if (tabHeaders.length !== 1)
+        addSection('Open tabs', renderTabsMarkdown(tabHeaders));
+      addSection('Page', renderTabMarkdown(tabHeaders.find(h => h.current) ?? tabHeaders[0]));
+    }
+    // Signal session close only when tabs decreased to zero (browser was closed
+    // during tool execution). When tabs were already zero before the tool ran,
+    // the session simply hasn't opened a Playwright-managed tab yet — that's
+    // expected for noTabRequired tools (browser_list_tabs, browser_create_tab,
+    // browser_attach_tab) and must not trigger backend disposal.
+    if (this._context.tabs().length === 0 && this._hadTabsAtConstruction)
+      this._isClose = true;
+
+    // Handle modal states.
+    if (tabSnapshot?.modalStates.length)
+      addSection('Modal state', renderModalStates(this._context.config, tabSnapshot.modalStates));
+
+    await this._addSnapshotSections(tabSnapshot, addSection);
+    return sections;
+  }
+
+  /**
+   * Snapshot and tab headers are an observation of a finished action: when they
+   * fail or outlive the call deadline, the result is returned without them.
+   */
+  private async _boundedObservation(tab: Tab | undefined): Promise<Observation> {
+    let capture: Promise<Observation> | undefined;
+    let reason: string;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const budget = remainingRequestBudget();
+      capture = this._observe(tab);
+      if (budget === Infinity)
+        return await capture;
+      const expired = new Promise<undefined>(resolve => {
+        timer = setTimeout(() => resolve(undefined), budget);
+      });
+      const observed = await Promise.race([capture, expired]);
+      if (observed)
+        return observed;
+      reason = OBSERVATION_EXPIRED;
+    } catch (e) {
+      reason = e instanceof RequestDeadlineError ? OBSERVATION_EXPIRED : e instanceof Error ? e.message : String(e);
+    } finally {
+      clearTimeout(timer);
+    }
+    const markStale = () => tab?.markSnapshotStale();
+    markStale();
+    void capture?.then(markStale, markStale);
+    return { notes: [`snapshot unavailable: ${reason}`] };
+  }
+
+  private async _observe(tab: Tab | undefined): Promise<Observation> {
+    const notes: string[] = [];
     // Execute snapshotWaitFor condition before capture
-    if (this._snapshotWaitFor && hasTab && wantsSnapshot) {
-      const tab = this._context.currentTabOrDie();
+    if (this._snapshotWaitFor && tab) {
       const waitForTimeout = Math.min(
           3000,
           this._context.remainingBudget()
@@ -319,34 +379,20 @@ export class Response {
       } catch (e) {
         // Timeout is not fatal — capture snapshot anyway with current state
         if (e instanceof Error && e.name === 'TimeoutError')
-          resultContent.push(`snapshotWaitFor timed out after ${waitForTimeout}ms — snapshot shows current state`);
+          notes.push(`snapshotWaitFor timed out after ${waitForTimeout}ms — snapshot shows current state`);
         else
           throw e;
       }
     }
 
-    const tabSnapshot = hasTab && wantsSnapshot ? await this._context.currentTabOrDie().captureSnapshot(this._clientWorkspace, { rootSelector: this._snapshotSelector, clientId: this._context.id }) : undefined;
+    const tabSnapshot = tab ? await tab.captureSnapshot(this._clientWorkspace, { rootSelector: this._snapshotSelector, clientId: this._context.id }) : undefined;
     if (tabSnapshot?.selectorResolved === false && this._snapshotSelector)
-      resultContent.push(`snapshotSelector '${this._snapshotSelector}' matched no elements — returning full page snapshot`);
-    requestDebug('tool=%s snapshot=%s hasTab=%s', this.toolName, this._includeSnapshot, hasTab);
-    const tabHeaders = wantsSnapshot ? await Promise.all(this._context.tabs().map(tab => tab.headerSnapshot())) : [];
-    if (wantsSnapshot || tabHeaders.some(header => header.changed)) {
-      if (tabHeaders.length !== 1)
-        addSection('Open tabs', renderTabsMarkdown(tabHeaders));
-      addSection('Page', renderTabMarkdown(tabHeaders.find(h => h.current) ?? tabHeaders[0]));
-    }
-    // Signal session close only when tabs decreased to zero (browser was closed
-    // during tool execution). When tabs were already zero before the tool ran,
-    // the session simply hasn't opened a Playwright-managed tab yet — that's
-    // expected for noTabRequired tools (browser_list_tabs, browser_create_tab,
-    // browser_attach_tab) and must not trigger backend disposal.
-    if (this._context.tabs().length === 0 && this._hadTabsAtConstruction)
-      this._isClose = true;
+      notes.push(`snapshotSelector '${this._snapshotSelector}' matched no elements — returning full page snapshot`);
+    const tabHeaders = await Promise.all(this._context.tabs().map(tab => tab.headerSnapshot()));
+    return { tabSnapshot, tabHeaders, notes };
+  }
 
-    // Handle modal states.
-    if (tabSnapshot?.modalStates.length)
-      addSection('Modal state', renderModalStates(this._context.config, tabSnapshot.modalStates));
-
+  private async _addSnapshotSections(tabSnapshot: TabSnapshot | undefined, addSection: (title: string, content: string[], codeframe?: 'yaml' | 'js') => string[]): Promise<void> {
     // Handle tab snapshot
     if (tabSnapshot && this._includeSnapshot !== 'none') {
       // For diff mode: empty string means "nothing changed" (distinct from undefined which means "no baseline").
@@ -439,9 +485,16 @@ export class Response {
     }
     if (text.length)
       addSection('Events', text);
-    return sections;
   }
 }
+
+const OBSERVATION_EXPIRED = 'not captured before the call deadline';
+
+type Observation = {
+  tabSnapshot?: TabSnapshot;
+  tabHeaders?: Array<TabHeader & { changed: boolean }>;
+  notes: string[];
+};
 
 export function renderTabMarkdown(tab: TabHeader): string[] {
   const lines = [`- Page URL: ${tab.url}`];

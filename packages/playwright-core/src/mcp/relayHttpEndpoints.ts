@@ -26,6 +26,7 @@ export interface RelayHTTPDelegate {
   listTabs(options?: { timeout?: number }): Promise<any>;
   createTab(sessionId: string, url?: string, options?: { timeout?: number }): Promise<any>;
   attachTab(sessionId: string, tabId: number, options?: { timeout?: number }): Promise<any>;
+  recycleTab(sessionId: string, options?: { timeout?: number }): Promise<any>;
   sendCustomCommand?(method: string, params: any, options?: { timeout?: number }): Promise<any>;
 }
 
@@ -112,6 +113,35 @@ export function installRelayHTTPEndpoints(server: http.Server, relay: RelayHTTPD
             return;
           }
           const result = await relay.attachTab(sessionId, tabId, { timeout: SIDEBAND_TIMEOUT });
+          res.setHeader('Content-Type', 'application/json');
+          res.statusCode = 200;
+          res.end(JSON.stringify(result));
+        } catch (e: any) {
+          sendError(res, e);
+        }
+      });
+      return;
+    }
+
+    if (url.pathname === '/tabs/recycle' && req.method === 'POST') {
+      let body = '';
+      req.on('data', (chunk: Buffer) => body += chunk.toString());
+      req.on('error', () => {
+        if (!res.headersSent) {
+          res.statusCode = 400;
+          res.end();
+        }
+      });
+      req.on('end', async () => {
+        try {
+          const { sessionId } = JSON.parse(body);
+          if (!sessionId) {
+            res.setHeader('Content-Type', 'application/json');
+            res.statusCode = 400;
+            res.end(JSON.stringify({ error: 'sessionId is required' }));
+            return;
+          }
+          const result = await relay.recycleTab(sessionId, { timeout: SIDEBAND_TIMEOUT });
           res.setHeader('Content-Type', 'application/json');
           res.statusCode = 200;
           res.end(JSON.stringify(result));

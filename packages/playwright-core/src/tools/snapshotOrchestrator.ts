@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+import { remainingRequestBudget } from './requestScope';
+
 import type { Context } from './context';
 import type { Page } from '../client/page';
 import type { ModalState } from './tool';
@@ -225,7 +227,11 @@ export class SnapshotOrchestrator {
         target_ms: this._context.config.timeouts?.budget?.default ?? 5000,
         interactableOnly: !!interactableOnly,
         rootSelector: rootSelector || undefined,
-      }, () => this._page._snapshotForAI({ track: `response-${options?.clientId ?? this._context.id}`, interactableOnly, includeUrls, rootSelector }), result => ({
+      }, () => {
+        const remaining = remainingRequestBudget();
+        const timeout = remaining === Infinity ? undefined : remaining;
+        return this._page._snapshotForAI({ track: `response-${options?.clientId ?? this._context.id}`, interactableOnly, includeUrls, rootSelector, timeout });
+      }, result => ({
         full_chars: result?.full.length ?? 0,
         diff_chars: result?.incremental?.length,
       }));

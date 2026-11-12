@@ -28,6 +28,7 @@ import { selectors } from '../inprocess';
 import { Tab } from './tab';
 import { relayHttpUrl } from '../mcp/extensionContextFactory';
 import { nullPerfLog } from './perfLog';
+import { remainingRequestBudget } from './requestScope';
 import { serverLog } from '../mcp/log';
 
 import type * as playwright from '../..';
@@ -136,8 +137,6 @@ export class Context {
   } | undefined;
   private _disposables: Disposable[] = [];
 
-  private _runningToolName: string | undefined;
-  private _deadline: number | undefined;
   private _firstPageResolve: (() => void) | undefined;
   private _firstPagePromise: Promise<void> | undefined;
 
@@ -329,26 +328,8 @@ export class Context {
     return removed;
   }
 
-  isRunningTool() {
-    return this._runningToolName !== undefined;
-  }
-
-  setRunningTool(name: string | undefined) {
-    this._runningToolName = name;
-  }
-
-  setDeadline(budgetMs: number): void {
-    this._deadline = Date.now() + budgetMs;
-  }
-
   remainingBudget(): number {
-    if (this._deadline === undefined)
-      return Infinity;
-    return Math.max(0, this._deadline - Date.now());
-  }
-
-  clearDeadline(): void {
-    this._deadline = undefined;
+    return remainingRequestBudget();
   }
 
   private async _setupRequestInterception(context: playwright.BrowserContext) {

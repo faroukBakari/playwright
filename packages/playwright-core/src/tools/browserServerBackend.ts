@@ -18,8 +18,10 @@ import crypto from 'crypto';
 import { Context } from './context';
 import { Response, requestDebug } from './response';
 import { SessionLog } from './sessionLog';
-import { createPerfLog } from './perfLog';
+import { createPerfLog, nullPerfLog } from './perfLog';
 import { createErrorLog } from './errorLog';
+import { RequestDeadlineError, runInRequestScope, runOutsideRequestScope } from './requestScope';
+import { recycleTab } from './tabUtils';
 import { debug } from '../utilsBundle';
 import { serverLog } from '../mcp/log';
 
@@ -28,12 +30,16 @@ import type { SnapshotMode } from './snapshotOptions';
 import type { ContextConfig } from './context';
 import type { PerfLog } from './perfLog';
 import type { ErrorLog } from './errorLog';
+import type { RequestScope } from './requestScope';
 import type * as playwright from '../../types/types';
 import type { Tool } from './tool';
 import type * as mcpServer from '../mcp/sdk/server';
 import type { ClientInfo, ProgressCallback, ServerBackend } from '../mcp/sdk/server';
 
 export type BrowserFactory = (sessionId?: string) => Promise<playwright.BrowserContext>;
+
+const MAX_TIMEOUT_SEC = 600;
+const WATCHDOG_ALLOWANCE_MS = 500;
 
 /**
  * Proxy that wraps a shared BrowserServerBackend, routing tool calls to the
@@ -83,6 +89,11 @@ export class BrowserServerBackend implements ServerBackend {
   private _extraBrowsers: Map<string, playwright.Browser> = new Map();
   private _clientInfo: ClientInfo | undefined;
   private _initialized = false;
+  // Admission state lives with the in-process browser contexts it serializes; nothing outside the process can own it.
+  private _pendingContexts: Map<string, Promise<Context>> = new Map();
+  private _sessionTails: Map<string, Promise<void>> = new Map();
+  private _runningTools: Map<string, string> = new Map();
+  private _recycleFailures: Map<string, string> = new Map();
   readonly browserContext: playwright.BrowserContext | null;
 
   get initialized() { return this._initialized; }
@@ -214,9 +225,19 @@ export class BrowserServerBackend implements ServerBackend {
       return this._contexts.get(this._defaultSessionId!)!;
     }
 
-    // New ID with factory → create isolated browser + context
+    // New ID with factory → one creation per session, shared by every call that arrives meanwhile.
+    // The browser connection outlives the call that creates it, so it is created outside that call's scope.
+    let pending = this._pendingContexts.get(sessionId);
+    if (!pending) {
+      pending = runOutsideRequestScope(() => this._createContext(sessionId)).finally(() => this._pendingContexts.delete(sessionId));
+      this._pendingContexts.set(sessionId, pending);
+    }
+    return await pending;
+  }
+
+  private async _createContext(sessionId: string): Promise<Context> {
     serverLog('lifecycle', `creating new browser context for sessionId="${sessionId}"`);
-    const browserContext = await this._browserFactory(sessionId);
+    const browserContext = await this._browserFactory!(sessionId);
     const browser = browserContext.browser();
     if (browser)
       this._extraBrowsers.set(sessionId, browser);
@@ -228,24 +249,21 @@ export class BrowserServerBackend implements ServerBackend {
     });
     context.setClientId(sessionId);
     this._contexts.set(sessionId, context);
-    this._perfLog?.setClientId(sessionId);
     return context;
   }
 
   async callTool(name: string, rawArguments: mcpServer.CallToolRequest['params']['arguments'], progress: ProgressCallback, sessionId?: string) {
     const tool = this._tools.find(tool => tool.schema.name === name)!;
-    if (!tool) {
-      return {
-        content: [{ type: 'text' as const, text: `### Error\nTool "${name}" not found` }],
-        isError: true,
-      };
-    }
+    if (!tool)
+      return errorResult(`Tool "${name}" not found`);
 
     // Extract timeout for dispatch-level enforcement. Don't delete from rawArguments —
     // tools with their own timeout schema (wait, navigateAndWait) still receive it
     // via inputSchema.parse(). Tools without it in their schema get it stripped by zod.
     const timeoutSec = rawArguments?.timeout !== undefined
       ? Number(rawArguments.timeout) : undefined;
+    if (timeoutSec !== undefined && !(timeoutSec <= MAX_TIMEOUT_SEC))
+      return errorResult(`timeout is in seconds and cannot exceed ${MAX_TIMEOUT_SEC} (received ${String(rawArguments!.timeout)}).`);
     const timeoutMs = this._resolveTimeout(tool, rawArguments as Record<string, unknown> | undefined, timeoutSec);
 
     const parsedArguments = tool.schema.inputSchema.parse(rawArguments || {}) as any;
@@ -254,93 +272,190 @@ export class BrowserServerBackend implements ServerBackend {
     const snapshotSelector = parsedArguments?.snapshotSelector;
     if (snapshotMode !== undefined || snapshotSelector !== undefined)
       requestDebug('tool=%s includeSnapshot=%s snapshotSelector=%s', name, snapshotMode, snapshotSelector);
-    const context = await this._resolveContext(sessionId);
-    const callId = crypto.randomUUID();
-    context.perfLog.setTool(name);
-    context.perfLog.setCallId(callId);
-    const response = new Response(context, name, parsedArguments, cwd, snapshotSelector, snapshotMode);
-    context.setRunningTool(name);
-    context.setDeadline(timeoutMs);
-    const hasPage = !!context.currentTab();
-    const pageUrl = hasPage ? context.currentTab()!.page.url() : undefined;
-    serverLog('info', `[${name}] callId=${callId} session=${sessionId ?? 'default'} tabs=${context.tabs().length} currentTab=${hasPage ? pageUrl : 'none'} timeout=${timeoutMs}ms`);
+    const call: ToolCall = { tool, parsedArguments, cwd, snapshotSelector, snapshotMode, timeoutMs, sessionId };
+    const scope: RequestScope = { callId: crypto.randomUUID(), tool: name, sessionId, deadline: Date.now() + timeoutMs };
+    return await runInRequestScope(scope, () => this._admit(call, scope));
+  }
 
-    let responseObject: mcpServer.CallToolResult;
-    const toolStart = performance.now();
+  private async _admit(call: ToolCall, scope: RequestScope): Promise<mcpServer.CallToolResult> {
+    const key = call.sessionId ?? '';
+    const previous = this._sessionTails.get(key) ?? Promise.resolve();
+    let releaseSlot!: () => void;
+    const held = new Promise<void>(resolve => { releaseSlot = resolve; });
+    const tail = previous.then(() => held);
+    this._sessionTails.set(key, tail);
+    void tail.then(() => {
+      if (this._sessionTails.get(key) === tail)
+        this._sessionTails.delete(key);
+    });
+
+    let deadlineTimer: ReturnType<typeof setTimeout>;
+    const admitted = await Promise.race([
+      previous.then(() => true),
+      new Promise<boolean>(resolve => {
+        deadlineTimer = setTimeout(() => resolve(false), Math.max(0, scope.deadline - Date.now()));
+      }),
+    ]);
+    clearTimeout(deadlineTimer!);
+    if (!admitted) {
+      releaseSlot();
+      const running = this._runningTools.get(key) ?? 'an earlier call';
+      serverLog('warn', `[${scope.tool}] callId=${scope.callId} session=${call.sessionId ?? 'default'} gave up its place: "${running}" still running after ${call.timeoutMs}ms`);
+      return errorResult(`Session busy: "${running}" is still running. This call waited ${call.timeoutMs}ms for it and was not started.`);
+    }
+
+    this._runningTools.set(key, scope.tool);
+    const release = () => {
+      this._runningTools.delete(key);
+      releaseSlot();
+    };
+    let stopping: Promise<void> | undefined;
     try {
-      // Fast-fail when no tab exists and the tool requires one.
-      // Inside the try so that finally{} handles setRunningTool cleanup.
-      if (!hasPage && !tool.noTabRequired) {
-        const msg = `No active tab — attach to an existing tab or use browser_navigate / browser_create_tab to open a page first.`;
-        serverLog('warn', `[${name}] fast-fail: ${msg}`);
-        return {
-          content: [{ type: 'text' as const, text: `### Error\n\n${msg}` }],
-          isError: true,
-        };
-      }
+      const outcome = await this._runAdmitted(call, scope);
+      if (outcome.kind === 'timeout' && outcome.stop)
+        stopping = runOutsideRequestScope(() => this._hardStop(key, outcome.stop!, scope));
+      return outcome.result;
+    } finally {
+      // The result goes back now; after a hard stop the next call waits for the page to be re-attached.
+      if (stopping)
+        void stopping.then(release);
+      else
+        release();
+    }
+  }
 
-      responseObject = await context.perfLog.timeAsync(
-          { phase: 'tool', step: 'e2e', side: 'server', target_ms: timeoutMs },
-          async () => {
-            const toolPromise = tool.handle(context, parsedArguments, response);
-            let timedOut = false;
-            let timeoutId: ReturnType<typeof setTimeout>;
-            const safetyNetMs = timeoutMs + 500;
-            const timeoutPromise = new Promise<never>((_, reject) => {
-              timeoutId = setTimeout(() => {
-                timedOut = true;
-                const stateHint = hasPage
-                  ? `active page: ${pageUrl}`
-                  : 'no active page — session may be stale or tab creation failed';
-                serverLog('warn', `[${name}] Safety-net timeout fired after ${safetyNetMs}ms (inner deadline was ${timeoutMs}ms). Session state: ${stateHint}. Inner deadline propagation may have failed — check tool handler.`);
-                const suggestion = hasPage
-                  ? ''
-                  : ' No active page in this session — try browser_create_tab or restart the server.';
-                reject(new Error(`Tool "${name}" timed out after ${timeoutMs}ms.${suggestion}`));
-              }, safetyNetMs);
-            });
+  private async _hardStop(key: string, context: Context, scope: RequestScope): Promise<void> {
+    try {
+      await recycleTab(context, `hardStop(${scope.tool}, callId=${scope.callId})`);
+      this._recycleFailures.delete(key);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      serverLog('warn', `[${scope.tool}] callId=${scope.callId} hard stop failed: ${reason}`);
+      this._recycleFailures.set(key, reason);
+    }
+  }
 
-            try {
-              await Promise.race([toolPromise, timeoutPromise]);
-            } catch (e) {
-              clearTimeout(timeoutId!);
-              if (timedOut) {
-              // Timeout won — tool handler is still running in the browser.
-              // Catch its eventual rejection so it doesn't become an unhandled
-              // rejection at process level. Log with full dispatch context.
-                toolPromise.catch(orphanedError => {
-                  serverLog('orphaned', `[${name}] callId=${callId}: ${orphanedError}`);
-                  this._errorLog?.log(name, callId, orphanedError);
-                });
-              }
-              throw e;
-            }
-            clearTimeout(timeoutId!);
-            return await response.serialize();
-          },
-          (result, error) => ({
-            args_keys: Object.keys(parsedArguments),
-            response_chars: result ? JSON.stringify(result).length : 0,
-            timeout_ms: timeoutMs,
-            outcome: error ? (String(error).includes('timed out') ? 'timeout' : 'error') : 'success',
-          }),
-      );
-      this._sessionLog?.logResponse(name, parsedArguments, responseObject);
-      const elapsed = Math.round(performance.now() - toolStart);
+  private async _runAdmitted(call: ToolCall, scope: RequestScope): Promise<CallOutcome> {
+    const { tool, timeoutMs, parsedArguments } = call;
+    const name = tool.schema.name;
+    const toolStart = performance.now();
+    const outcome = await (this._perfLog ?? nullPerfLog).timeAsync(
+        { phase: 'tool', step: 'e2e', side: 'server', target_ms: timeoutMs },
+        () => this._raceWatchdog(call, scope),
+        settled => ({
+          args_keys: Object.keys(parsedArguments),
+          response_chars: settled?.kind === 'success' ? JSON.stringify(settled.result).length : 0,
+          timeout_ms: timeoutMs,
+          outcome: settled?.kind ?? 'error',
+        }),
+    );
+    const elapsed = Math.round(performance.now() - toolStart);
+    if (outcome.kind === 'success') {
+      this._sessionLog?.logResponse(name, parsedArguments, outcome.result);
       if (elapsed > timeoutMs * 0.8)
-        serverLog('warn', `[${name}] callId=${callId}: ${elapsed}ms / ${timeoutMs}ms (${Math.round(elapsed / timeoutMs * 100)}% of timeout)`);
-    } catch (error: any) {
-      const elapsed = Math.round(performance.now() - toolStart);
-      this._errorLog?.log(name, callId, error, { timeout_ms: timeoutMs, actual_ms: elapsed });
+        serverLog('warn', `[${name}] callId=${scope.callId}: ${elapsed}ms / ${timeoutMs}ms (${Math.round(elapsed / timeoutMs * 100)}% of timeout)`);
+    } else {
+      this._errorLog?.log(name, scope.callId, outcome.error, { timeout_ms: timeoutMs, actual_ms: elapsed });
+    }
+    return outcome;
+  }
+
+  private async _raceWatchdog(call: ToolCall, scope: RequestScope): Promise<CallOutcome> {
+    const name = call.tool.schema.name;
+    const progress: CallProgress = { stage: 'context', hadTab: false };
+    const work = this._runTool(call, scope, progress);
+    let watchdogTimer: ReturnType<typeof setTimeout>;
+    const watchdog = new Promise<'expired'>(resolve => {
+      watchdogTimer = setTimeout(() => resolve('expired'), Math.max(0, scope.deadline + WATCHDOG_ALLOWANCE_MS - Date.now()));
+    });
+    const settled = await Promise.race([
+      work.then(result => ({ result }), (error: unknown) => ({ error })),
+      watchdog,
+    ]);
+    clearTimeout(watchdogTimer!);
+
+    if (settled === 'expired') {
+      serverLog('warn', `[${name}] callId=${scope.callId} not finished ${WATCHDOG_ALLOWANCE_MS}ms after its ${call.timeoutMs}ms deadline, stage=${progress.stage}, tab=${progress.hadTab ? 'yes' : 'none'}`);
+      work.catch(leftoverError => {
+        serverLog('orphaned', `[${name}] callId=${scope.callId}: ${leftoverError}`);
+        this._errorLog?.log(name, scope.callId, leftoverError);
+      });
+      const handlerPending = progress.stage !== 'response';
+      const stop = handlerPending && progress.hadTab && progress.context?.relayHttpUrl ? progress.context : undefined;
+      return { ...deadlineOutcome(call, progress), stop };
+    }
+    if ('error' in settled) {
+      if (settled.error instanceof RequestDeadlineError)
+        return deadlineOutcome(call, progress);
+      return { kind: 'error', error: settled.error, result: errorResult(String(settled.error)) };
+    }
+    return { kind: 'success', result: settled.result };
+  }
+
+  private async _runTool(call: ToolCall, scope: RequestScope, progress: CallProgress): Promise<mcpServer.CallToolResult> {
+    const { tool, parsedArguments, timeoutMs, sessionId } = call;
+    const name = tool.schema.name;
+    const context = await this._resolveContext(sessionId);
+    const response = new Response(context, name, parsedArguments, call.cwd, call.snapshotSelector, call.snapshotMode);
+    const tab = context.currentTab();
+    progress.hadTab = !!tab;
+    progress.context = context;
+    serverLog('info', `[${name}] callId=${scope.callId} session=${sessionId ?? 'default'} tabs=${context.tabs().length} currentTab=${tab ? tab.page.url() : 'none'} timeout=${timeoutMs}ms`);
+
+    const key = sessionId ?? '';
+    if (tab)
+      this._recycleFailures.delete(key);
+    if (!tab && !tool.noTabRequired) {
+      const recycleFailure = this._recycleFailures.get(key);
+      this._recycleFailures.delete(key);
+      const msg = `No active tab — attach to an existing tab or use browser_navigate / browser_create_tab to open a page first.`
+        + (recycleFailure ? ` The previous call was stopped at its deadline and its page could not be re-attached: ${recycleFailure}` : '');
+      serverLog('warn', `[${name}] fast-fail: ${msg}`);
       return {
-        content: [{ type: 'text' as const, text: `### Error\n${String(error)}` }],
+        content: [{ type: 'text' as const, text: `### Error\n\n${msg}` }],
         isError: true,
       };
-    } finally {
-      context.setRunningTool(undefined);
-      context.clearDeadline();
-      context.perfLog.setCallId(undefined);
     }
-    return responseObject;
+
+    progress.stage = 'handler';
+    await tool.handle(context, parsedArguments, response);
+    progress.stage = 'response';
+    return await response.serialize();
   }
+}
+
+type ToolCall = {
+  tool: Tool;
+  parsedArguments: any;
+  cwd: string | undefined;
+  snapshotSelector: string | undefined;
+  snapshotMode: SnapshotMode | undefined;
+  timeoutMs: number;
+  sessionId: string | undefined;
+};
+
+type CallProgress = {
+  stage: 'context' | 'handler' | 'response';
+  hadTab: boolean;
+  context?: Context;
+};
+
+type CallOutcome =
+  | { kind: 'success'; result: mcpServer.CallToolResult }
+  | { kind: 'error'; error: unknown; result: mcpServer.CallToolResult }
+  | { kind: 'timeout'; error: unknown; result: mcpServer.CallToolResult; stop?: Context };
+
+function errorResult(message: string): mcpServer.CallToolResult {
+  return {
+    content: [{ type: 'text' as const, text: `### Error\n${message}` }],
+    isError: true,
+  };
+}
+
+function deadlineOutcome(call: ToolCall, progress: CallProgress): CallOutcome & { kind: 'timeout' } {
+  const name = call.tool.schema.name;
+  const error = new Error(progress.stage === 'response'
+    ? `Tool "${name}" completed its action, but its response could not be built within ${call.timeoutMs}ms. Take a new snapshot before relying on the page state.`
+    : `Tool "${name}" timed out after ${call.timeoutMs}ms. The call was stopped and the page is being re-attached; page JavaScript that already started may still take effect; element refs from earlier snapshots are invalid.`);
+  return { kind: 'timeout', error, result: errorResult(String(error)) };
 }

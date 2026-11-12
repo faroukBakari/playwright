@@ -42,6 +42,8 @@ import type { Context } from './context';
 import type { Page } from '../client/page';
 import type * as playwright from '../../types/types';
 
+const TAB_INIT_TIMEOUT_MS = 10_000;
+
 const TabEvents = {
   modalState: 'modalState'
 };
@@ -102,19 +104,18 @@ export class Tab extends EventEmitter<TabEventsInterface> {
       }),
     ];
     (page as any)[tabSymbol] = this;
-    const initBudget = Math.min(context.remainingBudget(), 10_000);
-    this._initializedPromise = initBudget === Infinity
-      ? this._initialize()
-      : Promise.race([
-        this._initialize(),
-        new Promise<void>((_, reject) =>
-          setTimeout(() => reject(new Error('Tab initialization timed out')), initBudget)
-        ),
-      ]).catch(e => {
-        debug('pw:tools:error')('Tab init failed:', e.message);
-        serverLog('warn', `tab init timed out: ${e.message}, sessionId=${this.context.id}`);
-        // Swallow — init failure is non-fatal, snapshot will degrade gracefully
-      });
+    // Pages appear from browser events, outside any call: the bound is fixed, not a call budget.
+    let initTimer: ReturnType<typeof setTimeout>;
+    this._initializedPromise = Promise.race([
+      this._initialize(),
+      new Promise<void>((_, reject) => {
+        initTimer = setTimeout(() => reject(new Error('Tab initialization timed out')), TAB_INIT_TIMEOUT_MS);
+      }),
+    ]).catch(e => {
+      debug('pw:tools:error')('Tab init failed:', e.message);
+      serverLog('warn', `tab init timed out: ${e.message}, sessionId=${this.context.id}`);
+      // Swallow — init failure is non-fatal, snapshot will degrade gracefully
+    }).finally(() => clearTimeout(initTimer));
     this._actionTimeoutCeiling = 5_000;
     this._navigationTimeoutCeiling = 15_000;
     this._expectTimeoutCeiling = 5_000;
@@ -293,6 +294,11 @@ export class Tab extends EventEmitter<TabEventsInterface> {
   async clearRequests() {
     await this._initializedPromise;
     this._artifactCollector.clearRequests();
+  }
+
+  /** The next capture returns the whole page instead of a diff against a snapshot the caller may not have seen. */
+  markSnapshotStale(): void {
+    this._snapshotOrchestrator.needsFullSnapshot = true;
   }
 
   async captureSnapshot(relativeTo: string | undefined, options?: { rootSelector?: string; clientId?: string }): Promise<TabSnapshot> {

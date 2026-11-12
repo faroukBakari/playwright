@@ -211,6 +211,32 @@ export class CDPCommandRouter {
     });
   }
 
+  /**
+   * Stop whatever is driving a session's page: retire its target, cycle the
+   * debugger attachment on the same tab, then announce the target again.
+   * A failure after the detach leaves the session unbound.
+   */
+  async recycleTab(sessionId: string, options?: { timeout?: number }): Promise<any> {
+    const extension = this._deps.getExtensionConnection();
+    if (!extension)
+      throw new Error('Extension not connected');
+    const session = this._deps.getClient(sessionId);
+    if (!session || session.tabId == null)
+      throw new Error(`Session ${sessionId} has no tab to recycle`);
+    const tabId = session.tabId;
+    const timeout = options?.timeout ?? this._deps.getExtensionCommandTimeout();
+    this.sendTabDetached(session, `Session ${sessionId} recycling tab ${tabId}`);
+    session.tabId = null;
+    session.targetInfo = null;
+    await extension.send('detachTab', { sessionId }, { timeout });
+    const result = await extension.send('attachToTab', { sessionId, tabId } as any, { timeout });
+    session.tabId = result.tabId ?? null;
+    session.targetInfo = result.targetInfo ?? null;
+    this.sendTabAttached(session);
+    serverLog('session', `recycle: ${sessionId} re-attached tab ${session.tabId}`);
+    return result;
+  }
+
   notifyBumpedClient(bumpedSessionId: string, newSessionId: string, tabId: number): void {
     const bumpedSession = this._deps.getClient(bumpedSessionId);
     if (bumpedSession) {
