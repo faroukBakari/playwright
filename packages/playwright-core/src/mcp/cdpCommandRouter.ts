@@ -196,6 +196,21 @@ export class CDPCommandRouter {
     }
   }
 
+  /**
+   * Tell a Playwright client that its current target is gone, so its page and
+   * CDP session are disposed before another target is announced.
+   */
+  sendTabDetached(session: ClientSession, reason: string): void {
+    this._deps.sendToClient(session, {
+      method: 'Target.detachedFromTarget',
+      params: {
+        sessionId: session.cdpSessionId,
+        targetId: session.targetInfo?.targetId,
+        reason,
+      }
+    });
+  }
+
   notifyBumpedClient(bumpedSessionId: string, newSessionId: string, tabId: number): void {
     const bumpedSession = this._deps.getClient(bumpedSessionId);
     if (bumpedSession) {

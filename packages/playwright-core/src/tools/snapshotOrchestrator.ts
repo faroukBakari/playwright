@@ -69,7 +69,7 @@ export class SnapshotOrchestrator {
         const quietMs = 150;
         const settleResult = await this._page.evaluate(async ({ mode, quietMs, rootSelector, gatesEnabled, gateTimeoutMs }) => {
           const t0 = performance.now();
-          const gateResults: Record<string, string> = { nav: 'skip', vt: 'skip', ariaBusy: 'skip' };
+          const gateResults: Record<string, string> = { nav: 'skip', vt: 'skip', ariaBusy: 'skip', raf: 'skip' };
 
           if (gatesEnabled) {
             // Gate 1: Navigation API transition
@@ -132,9 +132,14 @@ export class SnapshotOrchestrator {
 
           // T1: drain microtask queue + double rAF
           await Promise.resolve();
-          await new Promise<void>(r =>
-            requestAnimationFrame(() => requestAnimationFrame(() => r()))
-          );
+          let frameTimer: ReturnType<typeof setTimeout> | undefined;
+          gateResults.raf = await Promise.race([
+            new Promise<string>(r => requestAnimationFrame(() => requestAnimationFrame(() => r('fired')))),
+            new Promise<string>(r => {
+              frameTimer = setTimeout(() => r('timeout'), gateTimeoutMs);
+            }),
+          ]);
+          clearTimeout(frameTimer);
 
           // T2: filtered MutationObserver quiescence
           if (mode === 'thorough') {
@@ -207,6 +212,7 @@ export class SnapshotOrchestrator {
             gate_nav: settleResult.gateResults.nav,
             gate_vt: settleResult.gateResults.vt,
             gate_aria_busy: settleResult.gateResults.ariaBusy,
+            gate_raf: settleResult.gateResults.raf,
             gate_ms: settleResult.gateMs,
             settle_ms: settleResult.settleMs,
             settle_mode: settleMode,

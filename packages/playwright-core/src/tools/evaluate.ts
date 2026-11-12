@@ -56,9 +56,6 @@ const evaluate = defineTabTool({
     let text = params.filename && typeof result === 'string'
       ? result
       : (JSON.stringify(result, null, 2) || 'undefined');
-    const maxLen = tab.context.config.evaluate?.maxResultLength;
-    if (maxLen && text.length > maxLen)
-      text = text.slice(0, maxLen) + `\n... [truncated: ${text.length} chars, limit ${maxLen}]`;
     if (params.filename) {
       validateFilename(params.filename);
       const filePath = path.join(os.tmpdir(), params.filename);
@@ -68,6 +65,9 @@ const evaluate = defineTabTool({
       );
       return;
     }
+    const maxLen = tab.context.config.evaluate?.maxResultLength;
+    if (maxLen && text.length > maxLen)
+      text = text.slice(0, maxLen) + `\n... [truncated: ${text.length} chars, limit ${maxLen}]`;
     response.addTextResult(text);
   },
 });

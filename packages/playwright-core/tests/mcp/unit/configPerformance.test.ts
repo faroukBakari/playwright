@@ -33,7 +33,7 @@ describe('defaultConfig.codegen', () => {
 
 describe('defaultConfig has no performance section', () => {
   it('performance is undefined after Phase 3 consolidation', () => {
-    expect(defaultConfig.performance).toBeUndefined();
+    expect(defaultConfig).not.toHaveProperty('performance');
   });
 });
 
@@ -149,7 +149,7 @@ describe('configFromEnv general env vars', () => {
 
   it('returns clean config when no env vars are set', () => {
     const config = configFromEnv();
-    expect(config.performance).toBeUndefined();
+    expect(config).not.toHaveProperty('performance');
     expect(config.evaluate).toBeUndefined();
     expect(config.maxResponseChars).toBeUndefined();
   });

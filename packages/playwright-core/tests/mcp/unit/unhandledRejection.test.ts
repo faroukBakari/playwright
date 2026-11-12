@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Import from compiled playwright-core (file: dependency)
 import { setupExitWatchdog } from 'playwright-core/src/mcp/watchdog';
+import type { MockInstance } from 'vitest';
 
 // ---------------------------------------------------------------------------
 // Unhandled rejection resilience — watchdog + orphaned promise handling
@@ -9,8 +10,8 @@ import { setupExitWatchdog } from 'playwright-core/src/mcp/watchdog';
 
 describe('watchdog unhandledRejection handler', () => {
   let originalListeners: Function[];
-  let processExitSpy: ReturnType<typeof vi.spyOn>;
-  let stderrSpy: ReturnType<typeof vi.spyOn>;
+  let processExitSpy: MockInstance<typeof process.exit>;
+  let stderrSpy: MockInstance<typeof process.stderr.write>;
 
   beforeEach(() => {
     // Save and remove existing unhandledRejection listeners (including vitest's)

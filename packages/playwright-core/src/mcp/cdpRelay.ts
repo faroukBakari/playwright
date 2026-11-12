@@ -659,6 +659,10 @@ export class CDPRelayServer {
     // Update the ClientSession if it already exists
     const session = this._clients.get(sessionId);
     if (session) {
+      if (session.tabId !== null && session.tabId !== result.tabId && session.cdpSessionId) {
+        serverLog('session', `self-detach: ${sessionId} replacing tab ${session.tabId} with new tab ${result.tabId}`);
+        this._commandRouter.sendTabDetached(session, `Session ${sessionId} replacing tab ${session.tabId} with new tab ${result.tabId}`);
+      }
       session.tabId = result.tabId ?? null;
       session.targetInfo = result.targetInfo ?? { type: 'page', url: result.url ?? url ?? '', title: '' };
       session.cdpSessionId = result.cdpSessionId ?? session.cdpSessionId;
@@ -686,14 +690,7 @@ export class CDPRelayServer {
       // zombie — dead CDP connection, still _currentTab, hangs serialize().
       if (session.tabId !== null && session.tabId !== tabId && session.cdpSessionId) {
         serverLog('session', `self-detach: ${sessionId} leaving tab ${session.tabId} for tab ${tabId}`);
-        this._sendToClient(session, {
-          method: 'Target.detachedFromTarget',
-          params: {
-            sessionId: session.cdpSessionId,
-            targetId: session.targetInfo?.targetId,
-            reason: `Session ${sessionId} switching from tab ${session.tabId} to tab ${tabId}`,
-          }
-        });
+        this._commandRouter.sendTabDetached(session, `Session ${sessionId} switching from tab ${session.tabId} to tab ${tabId}`);
       }
       session.tabId = result.tabId ?? null;
       session.targetInfo = result.targetInfo ?? null;

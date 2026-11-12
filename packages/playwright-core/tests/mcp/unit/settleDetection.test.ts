@@ -207,6 +207,7 @@ describe('snapshotWaitFor within parameter', () => {
 // ---------------------------------------------------------------------------
 
 import { Response, parseResponse } from 'playwright-core/src/tools/response';
+import type { ValidatorContext } from 'playwright-core/src/protocol/validatorPrimitives';
 
 function createMockTab(selectorResolved: boolean) {
   return {
@@ -268,9 +269,10 @@ describe('selectorResolved warning in Response Result section', () => {
 // selectorResolved field in PageSnapshotForAIResult protocol schema
 // ---------------------------------------------------------------------------
 
-const validatorContext = {
+const validatorContext: ValidatorContext = {
+  binary: 'buffer',
   isUnderTest: () => false,
-  tChannelImpl: (_names: string[], _arg: unknown, path: string) => {
+  tChannelImpl: (_names: '*' | string[], _arg: unknown, path: string) => {
     throw new Error(`unexpected channel lookup at ${path}`);
   },
 };
